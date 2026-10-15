@@ -11,7 +11,7 @@ const PORT = process.env.PORT || 3000;
 const DJ_USERNAME = process.env.DJ_USERNAME || 'locutor';
 const DJ_PASSWORD = process.env.DJ_PASSWORD || 'TROQUE-ESTA-SENHA';
 
-app.use(express.json({ limit: '100kb' }));
+app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 let radioState = {
@@ -77,7 +77,7 @@ app.post('/api/settings', auth, (req, res) => {
   const body = req.body || {};
   if (typeof body.discordUrl === 'string') radioState.settings.discordUrl = body.discordUrl.slice(0, 500);
   if (Array.isArray(body.carousel)) radioState.settings.carousel = body.carousel.slice(0, 3).map(slide => ({
-    title: String(slide.title || '').slice(0, 100), subtitle: String(slide.subtitle || '').slice(0, 200), imageUrl: String(slide.imageUrl || '').slice(0, 1000)
+    title: String(slide.title || '').slice(0, 100), subtitle: String(slide.subtitle || '').slice(0, 200), imageUrl: String(slide.imageUrl || '').slice(0, 2800000)
   }));
   broadcast({ type: 'state', state: radioState }); res.json({ state: radioState });
 });
@@ -101,6 +101,7 @@ wss.on('connection', (ws) => {
     let data;
     try { data = JSON.parse(raw.toString()); } catch { return; }
     if (data.type !== 'chat') return;
+    if (!radioState.live) { ws.send(JSON.stringify({ type: 'chat-error', error: 'O chat será liberado quando a transmissão começar.' })); return; }
     const name = String(data.name || 'Ouvinte').trim().slice(0, 32) || 'Ouvinte';
     const text = String(data.text || '').trim().slice(0, 500);
     if (!text) return;
