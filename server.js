@@ -19,9 +19,13 @@ let radioState = {
   djName: '',
   program: '',
   startedAt: null,
-  mostPlayed: [
-    { title: 'Adicione uma música', artist: 'Painel do locutor' }
-  ]
+  currentTrack: '',
+  settings: { discordUrl: '', carousel: [
+    { title: 'GAZETA FM', subtitle: 'A trilha sonora da sua conexão.', imageUrl: '' },
+    { title: 'SINTONIZE', subtitle: 'Seu momento começa aqui.', imageUrl: '' },
+    { title: 'VOCÊ ESTÁ', subtitle: 'Na Gazeta FM Nacional.', imageUrl: '' }
+  ] },
+  mostPlayed: [{ title: 'Adicione uma música', artist: 'Painel do locutor' }]
 };
 let messages = [];
 const sessions = new Map();
@@ -68,6 +72,18 @@ app.post('/api/broadcast', auth, (req, res) => {
   };
   broadcast({ type: 'state', state: radioState });
   res.json({ state: radioState });
+});
+app.post('/api/settings', auth, (req, res) => {
+  const body = req.body || {};
+  if (typeof body.discordUrl === 'string') radioState.settings.discordUrl = body.discordUrl.slice(0, 500);
+  if (Array.isArray(body.carousel)) radioState.settings.carousel = body.carousel.slice(0, 3).map(slide => ({
+    title: String(slide.title || '').slice(0, 100), subtitle: String(slide.subtitle || '').slice(0, 200), imageUrl: String(slide.imageUrl || '').slice(0, 1000)
+  }));
+  broadcast({ type: 'state', state: radioState }); res.json({ state: radioState });
+});
+app.post('/api/current-track', auth, (req, res) => {
+  radioState.currentTrack = String((req.body || {}).title || '').slice(0, 160);
+  broadcast({ type: 'state', state: radioState }); res.json({ state: radioState });
 });
 app.post('/api/songs', auth, (req, res) => {
   const songs = Array.isArray(req.body.songs) ? req.body.songs.slice(0, 20) : [];
