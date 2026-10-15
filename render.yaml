@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: gazeta-fm-nacional
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DJ_USERNAME
+        sync: false
+      - key: DJ_PASSWORD
+        sync: false
