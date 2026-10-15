@@ -1,1 +1,47 @@
-
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#17052c">
+<title>GAZETA FM NACIONAL PLAYER</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="#"><span class="brand-mark">G</span><span>GAZETA FM <b>NACIONAL</b></span></a>
+  <nav><a href="#radio">Rádio</a><a href="#ouvintes">Ouvintes</a><a href="#mais-tocadas">Mais tocadas</a><a href="#discord">Discord</a><button id="openLogin" class="btn small">Painel do locutor</button></nav>
+</header>
+<main>
+<section class="hero">
+  <div class="hero-copy"><p class="eyebrow">SUA RÁDIO • SUA CONEXÃO</p><h1>GAZETA FM<br><span>NACIONAL</span></h1><p class="hero-sub">A trilha sonora da sua conexão.</p><a class="btn" href="#radio">OUÇA AGORA <span>▶</span></a></div>
+  <div class="hero-art" aria-label="Ilustração de ondas sonoras"><div class="orb"></div><div class="wave"></div><div class="equalizer" id="equalizer"></div><div class="hero-label">SINTONIZE<br><b>SEU MOMENTO</b></div></div>
+  <div class="carousel-dots"><button class="dot active" data-slide="0" aria-label="Slide 1"></button><button class="dot" data-slide="1" aria-label="Slide 2"></button><button class="dot" data-slide="2" aria-label="Slide 3"></button></div>
+</section>
+<section id="radio" class="radio-card panel">
+  <div class="section-heading"><div><p class="eyebrow">NO AR</p><h2>Ouça a Gazeta</h2></div><span id="liveBadge" class="status offline"><i></i> AGUARDANDO LOCUTOR</span></div>
+  <div class="now-playing"><div class="cover"><span>G</span><small>FM NACIONAL</small></div><div class="track-info"><span class="muted">PROGRAMA ATUAL</span><h3 id="programName">Aguardando locutor</h3><p id="djName">A programação será anunciada aqui.</p></div><button id="playButton" class="play-button" title="Tocar áudio local">▶</button></div>
+  <p class="notice">O player visual está pronto. A distribuição de áudio ao vivo para todos os ouvintes exige uma infraestrutura de streaming que o Render Free sozinho não garante. Os controles de áudio local funcionam neste navegador.</p>
+</section>
+<section id="ouvintes" class="two-col">
+  <div class="panel chat-panel"><div class="section-heading"><div><p class="eyebrow">COMUNIDADE</p><h2>Chat dos ouvintes</h2></div><span class="online-dot">● AO VIVO</span></div>
+    <label class="field-label" for="chatName">Seu nome</label><input id="chatName" maxlength="32" placeholder="Como quer aparecer?" value="Ouvinte">
+    <div id="chatMessages" class="chat-messages" aria-live="polite"><p class="empty">Entre no chat e mande seu alô!</p></div>
+    <form id="chatForm" class="chat-form"><input id="chatText" maxlength="500" placeholder="Escreva uma mensagem..." autocomplete="off" required><button class="btn" type="submit">Enviar</button></form>
+    <p class="tiny muted">Mensagens são temporárias e podem sumir quando o servidor reiniciar.</p>
+  </div>
+  <div id="discord" class="panel discord-panel"><div class="discord-icon">⌁</div><p class="eyebrow">FAÇA PARTE DA COMUNIDADE</p><h2>ENTRE NO NOSSO DISCORD E ACOMPANHE AS NOVIDADES</h2><p>Converse com a comunidade e fique por dentro das novidades da GAZETA FM NACIONAL.</p><label class="field-label" for="discordUrl">Convite do Discord (edite no painel do site)</label><input id="discordUrl" placeholder="https://discord.gg/seuconvite"><button id="discordButton" class="btn discord-btn">ENTRAR NO DISCORD ↗</button><p class="tiny muted">Adicione o convite do seu servidor para ativar o botão.</p></div>
+</section>
+<section id="mais-tocadas" class="panel tracks-panel"><div class="section-heading"><div><p class="eyebrow">SELEÇÃO DA RÁDIO</p><h2>As mais tocadas</h2></div><span class="muted">DESTAQUES MUSICAIS</span></div><div id="topTracks" class="top-tracks"><div class="track-row"><span class="rank">01</span><div><b>Adicione suas músicas</b><p>O locutor pode editar a lista no painel.</p></div></div></div></section>
+<section class="footer-cta"><p class="eyebrow">GAZETA FM NACIONAL</p><h2>A rádio que conecta você.</h2><p>Obrigado por fazer parte da nossa sintonia.</p></section>
+</main>
+<footer>© <span id="year"></span> GAZETA FM NACIONAL PLAYER <span>Feito para a comunidade.</span></footer>
+<div id="loginModal" class="modal hidden"><div class="modal-card"><button class="close" id="closeLogin" aria-label="Fechar">×</button><p class="eyebrow">ACESSO RESTRITO</p><h2>Painel do locutor</h2><form id="loginForm"><label class="field-label">Usuário</label><input id="username" autocomplete="username" required><label class="field-label">Senha</label><input id="password" type="password" autocomplete="current-password" required><button class="btn full" type="submit">Entrar no painel</button><p id="loginError" class="error"></p></form></div></div>
+<div id="dashboard" class="dashboard hidden"><div class="dashboard-head"><div><p class="eyebrow">GAZETA FM NACIONAL</p><h2>Painel de locução</h2></div><button id="logout" class="btn outline">Sair</button></div>
+<div class="dash-grid">
+<section class="panel"><h3>Transmissão</h3><label class="field-label">Nome do locutor</label><input id="djInput" placeholder="Nome do locutor"><label class="field-label">Programa atual</label><input id="programInput" placeholder="Ex.: Noite Sertaneja"><div class="button-row"><button id="startLive" class="btn">Iniciar transmissão</button><button id="endLive" class="btn danger">Encerrar</button></div><p class="tiny muted">Este controle atualiza o status do site; não garante streaming de áudio público.</p><hr><h3>Microfone</h3><p id="micStatus" class="muted">Microfone fechado.</p><div class="button-row"><button id="micOpen" class="btn">Abrir microfone</button><button id="micClose" class="btn outline">Fechar microfone</button></div><audio id="localMicAudio" controls class="audio-preview hidden"></audio></section>
+<section class="panel"><h3>Adicione sua música <span class="muted">(5 slots)</span></h3><div id="musicSlots"></div><h3 class="slot-title">Adicione efeito <span class="muted">(5 efeitos)</span></h3><div id="effectSlots"></div></section>
+<section class="panel"><h3>Comerciais <span class="muted">(5 slots)</span></h3><div id="commercialSlots"></div><h3 class="slot-title">Vinhetas <span class="muted">(5 slots)</span></h3><div id="jingleSlots"></div></section>
+<section class="panel"><h3>Editar as mais tocadas</h3><p class="tiny muted">Uma música por linha no formato: Música — Artista</p><textarea id="tracksEditor" rows="7" placeholder="Nome da música — Artista"></textarea><button id="saveTracks" class="btn">Salvar lista</button><hr><h3>Carrossel inicial</h3><label class="field-label">Título principal</label><input id="carouselTitle" value="GAZETA FM NACIONAL"><label class="field-label">Frase do carrossel</label><input id="carouselSubtitle" value="A trilha sonora da sua conexão."><button id="saveCarousel" class="btn">Atualizar carrossel</button><p class="tiny muted">A edição do carrossel vale para este navegador; não é salva permanentemente.</p></section>
+</div><p class="notice">Importante: arquivos escolhidos aqui ficam no navegador do locutor. Eles não são enviados para armazenamento permanente no Render e não ficam disponíveis automaticamente para outros usuários.</p></div>
+<script src="/app.js"></script>
+</body></html>
