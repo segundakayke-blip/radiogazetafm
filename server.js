@@ -12,7 +12,8 @@ const PORT = process.env.PORT || 3000;
 const DJ_USERNAME = process.env.DJ_USERNAME || 'locutor';
 const DJ_PASSWORD = process.env.DJ_PASSWORD || 'TROQUE-ESTA-SENHA';
 
-app.use(express.json({ limit: '15mb' }));
+// AUMENTADO: Limite estendido para suportar o texto de imagens pesadas sem quebrar a requisição
+app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 let radioState = {
@@ -106,9 +107,14 @@ app.post('/api/settings', auth, (req, res) => {
     }
     radioState.settings.discordUrl = url;
   }
+  
+  // AUMENTADO: O limite de caracteres aceito para a imagem subiu para aceitar os novos dados da imagem
   if (Array.isArray(body.carousel)) radioState.settings.carousel = body.carousel.slice(0, 3).map(slide => ({
-    title: String(slide.title || '').slice(0, 100), subtitle: String(slide.subtitle || '').slice(0, 200), imageUrl: String(slide.imageUrl || '').slice(0, 2800000)
+    title: String(slide.title || '').slice(0, 100), 
+    subtitle: String(slide.subtitle || '').slice(0, 200), 
+    imageUrl: String(slide.imageUrl || '').slice(0, 25000000) 
   }));
+  
   persistState();
   broadcast({ type: 'state', state: radioState }); res.json({ state: radioState });
 });
