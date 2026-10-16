@@ -6,3 +6,8 @@
 .toast-root{position:fixed;right:18px;top:18px;z-index:1000;display:flex;flex-direction:column;gap:9px;max-width:min(380px,calc(100vw - 36px));pointer-events:none}.toast{opacity:0;transform:translateY(-8px);transition:opacity .22s ease,transform .22s ease;background:linear-gradient(135deg,#241039,#170d22);border:1px solid #8b5cf6;color:#f5eafa;padding:13px 16px;border-radius:12px;box-shadow:0 12px 35px #0008;font-size:13px;line-height:1.45}.toast-show{opacity:1;transform:translateY(0)}.toast-error{border-color:#fb7185;background:linear-gradient(135deg,#3b1424,#1d0b16)}
 
 .carousel-preview{display:block;width:100%;max-height:150px;object-fit:cover;border-radius:8px;margin-top:10px;border:1px solid #51366a}.carousel-editor input[type=file]{margin-top:6px}.chat-form button:disabled{opacity:.45;cursor:not-allowed}.chat-panel input:disabled{opacity:.55;cursor:not-allowed}
+
+/* Quando há imagem personalizada no carrossel, mostrar somente a imagem, sem textos e ilustração padrão. */
+.hero.has-custom-image .hero-copy,.hero.has-custom-image .hero-art{display:none!important}
+.hero.has-custom-image:before{display:none}
+.hero.has-custom-image{background-color:#160720}
