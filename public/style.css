@@ -128,3 +128,6 @@ button.btn:not(.play-button):not(.remove):not(.close):not(.dot)::before{content:
 
 /* Solicitações de convidados */
 .guest-requests{display:grid;gap:10px;margin:10px 0}.guest-request-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px;border:1px solid var(--border,#2b3b57);border-radius:12px;flex-wrap:wrap}.guest-request-row .button-row{display:flex;gap:8px;flex-wrap:wrap}.guest-request-row .btn{padding:8px 12px}
+
+/* Painel do convidado sobre a página principal, sem trocar a URL */
+.guest-modal-card{position:relative;width:min(560px,100%);height:min(760px,92vh);overflow:hidden;background:#0b2340;border:1px solid #168cff66;border-radius:20px;box-shadow:0 25px 80px #0009;padding:0}.guest-modal-card iframe{display:block;width:100%;height:100%;border:0;background:#0b2340}.guest-modal-card .close{z-index:2;right:14px;top:8px;width:38px;height:38px;border-radius:50%;background:#07172acc;font-size:30px}.topbar nav #openGuest{font:inherit;padding:8px 10px;background:transparent;border:1px solid #168cff66;box-shadow:none;letter-spacing:0}@media(max-width:800px){.topbar nav #openGuest{display:inline-flex}.guest-modal-card{height:88vh}}
