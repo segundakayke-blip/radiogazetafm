@@ -11,3 +11,29 @@
 .hero.has-custom-image .hero-copy,.hero.has-custom-image .hero-art{display:none!important}
 .hero.has-custom-image:before{display:none}
 .hero.has-custom-image{background-color:#160720}
+
+/* GAZETA FM visual refresh: brighter, cleaner cards and controls without changing layout or systems */
+:root{--accent:#ff3dcb;--accent2:#7c4dff;--line:#38214f;--muted:#c4b4d8}
+body{background:radial-gradient(ellipse at 10% 0%,#351052 0,transparent 38%),radial-gradient(ellipse at 100% 20%,#23145a 0,transparent 35%),#0d0717;color:#fff}
+.topbar{background:linear-gradient(100deg,#12071fdd,#261044eF,#180a2cdd);border-bottom:1px solid #b44bff30;backdrop-filter:blur(16px)}
+.brand-mark,.discord-icon{background:linear-gradient(135deg,#ff4acb,#8b5cf6 60%,#4f46e5);box-shadow:0 8px 28px #c026d344}
+.btn{background:linear-gradient(110deg,#ff3dcb,#a62bff 55%,#6848ff);box-shadow:0 7px 22px #a21caf35;transition:transform .18s,filter .18s,box-shadow .18s}
+.btn:hover,.play-button:hover{filter:brightness(1.13);transform:translateY(-1px);box-shadow:0 10px 28px #a21caf55}
+.btn.outline{background:#241334;border:1px solid #a855f766;box-shadow:none}
+.panel{background:linear-gradient(145deg,#21112fef,#140d23f5);border:1px solid #c084fc1c;box-shadow:0 18px 55px #0004,0 1px 0 #ffffff08 inset}
+.hero{border:1px solid #f0abfc24;box-shadow:0 24px 70px #c026d322}
+.hero:not(.has-custom-image){background:linear-gradient(115deg,#41105d,#8b1fc1 48%,#e12c9b 78%,#ff6b8a)!important}
+.hero:not(.has-custom-image):before{background:radial-gradient(circle at 80% 35%,#fff5,transparent 27%),linear-gradient(90deg,#17052244,transparent)}
+.status.live{background:#064e3b77;color:#86efac;border:1px solid #34d39955}
+.play-button{background:linear-gradient(135deg,#ff4acb,#8b5cf6 60%,#5145ff);box-shadow:0 7px 25px #a855f755}
+input,textarea{background:#10091c;border-color:#53356d}
+input:focus,textarea:focus{border-color:#f472e6;box-shadow:0 0 0 3px #e879f933}
+.sensor-box{background:linear-gradient(145deg,#1a1027,#10091a);border-color:#8b5cf644;box-shadow:inset 0 1px #ffffff08}
+.meter{background:#2d1c40}.meter i{background:linear-gradient(90deg,#8b5cf6,#f43fbd,#fb7185,#4ade80);box-shadow:0 0 12px #d946ef55}
+.slot{background:#ffffff04;border:1px solid #ffffff0a;border-radius:12px;padding:9px}
+.slot .remove{background:linear-gradient(110deg,#4a1835,#2b1638);border:1px solid #fb718555}
+.carousel-editor{background:#ffffff04;border-color:#a855f733}
+.toast{background:linear-gradient(135deg,#3b1551,#211039);border-color:#d946ef88;box-shadow:0 14px 38px #0007}
+.discord-panel{background:radial-gradient(circle at 100% 0%,#d946ef55,transparent 45%),linear-gradient(145deg,#351052,#17102d)}
+.track-row{background:linear-gradient(100deg,#ffffff08,#ffffff03);border-color:#ffffff12}
+@media(max-width:800px){.hero:not(.has-custom-image){background:linear-gradient(140deg,#4c116b,#a21caf 55%,#ec4899 85%,#fb7185)!important}}
