@@ -90,3 +90,27 @@ input:focus,textarea:focus{border-color:#38bdf8!important;box-shadow:0 0 0 3px #
 .toast{background:linear-gradient(135deg,#103663,#09182f)!important;border-color:#22bdf288!important}
 .slot .remove{background:linear-gradient(110deg,#102b4a,#0a1a31)!important;border-color:#168cff66!important}
 @media(max-width:800px){.hero:not(.has-custom-image){background:linear-gradient(140deg,#09265a,#0758a8 55%,#087fd0 85%,#13b9d6)!important}}
+
+
+/* V9 FINAL: identidade azul pura, sem tons roxos/rosas */
+:root{--bg:#030914!important;--panel:#081a30!important;--panel2:#0b2545!important;--purple:#087cff!important;--pink:#20d9ff!important;--accent:#087cff!important;--accent2:#20d9ff!important;--line:#174b7e!important;--text:#f3faff!important;--muted:#a8c7e5!important}
+html,body{background:#030914!important;color:#f3faff!important}
+body{background-image:radial-gradient(ellipse at 12% 0%,#063d72 0,transparent 40%),radial-gradient(ellipse at 96% 14%,#064766 0,transparent 32%),linear-gradient(180deg,#06152a,#030914 76%)!important}
+.topbar,.dashboard-head{background:linear-gradient(100deg,#041225,#08294b,#041225)!important;border-color:#168cff66!important}
+.panel,.now-playing,.modal-card,.dashboard,.slot,.carousel-editor,.track-row{background:linear-gradient(145deg,#0b2340,#061326)!important;border-color:#168cff44!important}
+.btn,.play-button,.discord-icon,.brand-mark,.sensor-icon{background:linear-gradient(115deg,#006dff,#00c8f0)!important;box-shadow:0 5px 22px #007bff33!important;border-color:#19bfff66!important}
+.btn.danger,.slot .remove{background:linear-gradient(115deg,#0755a8,#07305b)!important;border-color:#168cff77!important}
+.btn.outline,.more-button,.dropdown{background:#061b34!important;border-color:#168cff66!important}
+.hero:not(.has-custom-image){background:linear-gradient(115deg,#041b40,#0758a8 50%,#009ed0)!important;border-color:#2bcaff88!important;box-shadow:0 24px 70px #087cff22!important}
+.hero:before{background:radial-gradient(circle at 80% 35%,#ffffff26,transparent 27%),linear-gradient(90deg,#04132933,transparent)!important}
+.discord-panel{background:radial-gradient(circle at 100% 0%,#00b7ff44,transparent 45%),linear-gradient(145deg,#0a2b50,#061326)!important}
+input,textarea,.chat-messages,.chat-input{background:#030e1d!important;border-color:#174b7e!important;color:#f3faff!important}
+input:focus,textarea:focus{border-color:#22d3ee!important;box-shadow:0 0 0 3px #0ea5e933!important}
+.eyebrow,.brand b,.topbar nav a:hover,.sensor-label{color:#8ce9ff!important}
+.meter{background:#102c4a!important}.meter i{background:linear-gradient(90deg,#087cff,#20d9ff,#9bf5ff)!important;box-shadow:0 0 12px #20d9ff55!important}
+.toast{background:linear-gradient(135deg,#073b70,#061326)!important;border-color:#20d9ff88!important}
+.carousel-editor,.track-row{border-color:#168cff44!important}
+/* Ícones decorativos pequenos nos controles e ações, sem alterar o comportamento */
+button.btn:not(.play-button):not(.remove):not(.close):not(.dot)::before{content:'◆';display:inline-block;margin-right:.55em;font-size:.75em;color:#b9f4ff}
+#startLive::before{content:'▶'!important}#endLive::before{content:'■'!important}#micOpen::before{content:'🎙'!important}#micClose::before{content:'🔇'!important}#saveProgram::before{content:'📅'!important}#saveDiscord::before{content:'🔗'!important}#saveTracks::before{content:'🎵'!important}#saveCarousel::before{content:'🖼'!important}#logout::before{content:'↪'!important}
+@media(max-width:800px){.hero:not(.has-custom-image){background:linear-gradient(140deg,#041b40,#0758a8 55%,#009ed0 85%,#20d9ff)!important}}
