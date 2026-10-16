@@ -39,7 +39,7 @@ async function handleRtc(from,payload){try{if(payload?.description?.type==='offe
 $('openLogin').onclick=()=>{$('loginModal').classList.remove('hidden')};
 // O painel do convidado abre em uma janela sobre a página atual, sem navegação.
 const guestModal=$('guestModal'), guestFrame=$('guestFrame');
-$('openGuest')?.addEventListener('click',()=>{guestModal.classList.remove('hidden');if(guestFrame.src==='about:blank'||guestFrame.getAttribute('src')==='about:blank')guestFrame.src='/convidado?embed=1';});
+$('openGuest')?.addEventListener('click',()=>{guestModal.classList.remove('hidden');if(guestFrame.src==='about:blank'||guestFrame.getAttribute('src')==='about:blank')guestFrame.src='/guest.html?embed=1&v=18';});
 function closeGuestModal(){guestModal.classList.add('hidden');guestFrame.src='about:blank'}
 $('closeGuest')?.addEventListener('click',closeGuestModal);
 guestModal?.addEventListener('click',e=>{if(e.target===guestModal)closeGuestModal()});
