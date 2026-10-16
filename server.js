@@ -92,6 +92,7 @@ app.post('/api/logout', auth, (req, res) => {
 app.get('/api/state', (req, res) => res.json({ state: radioState, messages: messages.slice(-60) }));
 app.post('/api/broadcast', auth, (req, res) => {
   const { live, djName, program } = req.body || {};
+  const previousDj = radioState.djName; const previousProgram = radioState.program;
   radioState = {
     ...radioState,
     live: Boolean(live),
@@ -101,22 +102,27 @@ app.post('/api/broadcast', auth, (req, res) => {
   };
   persistState();
   broadcast({ type: 'state', state: radioState });
+  if (typeof djName === 'string' && typeof program === 'string' && (previousDj !== radioState.djName || previousProgram !== radioState.program)) broadcast({ type: 'notice', message: `Programação atualizada: ${radioState.program} — ${radioState.djName}.` });
   res.json({ state: radioState });
 });
 app.post('/api/settings', auth, (req, res) => {
   const body = req.body || {};
+  let discordChanged = false;
   if (typeof body.discordUrl === 'string') {
     const url = body.discordUrl.trim();
     if (url && (!/^https:\/\//i.test(url) || url.length > 500)) {
       return res.status(400).json({ error: 'O link do Discord precisa começar com https:// e ter até 500 caracteres.' });
     }
+    discordChanged = url !== radioState.settings.discordUrl;
     radioState.settings.discordUrl = url;
   }
   if (Array.isArray(body.carousel)) radioState.settings.carousel = body.carousel.slice(0, 3).map(slide => ({
     title: String(slide.title || '').slice(0, 100), subtitle: String(slide.subtitle || '').slice(0, 200), imageUrl: String(slide.imageUrl || '').slice(0, 2800000)
   }));
   persistState();
-  broadcast({ type: 'state', state: radioState }); res.json({ state: radioState });
+  broadcast({ type: 'state', state: radioState });
+  if (discordChanged) broadcast({ type: 'notice', message: 'O link do Discord foi atualizado.' });
+  res.json({ state: radioState });
 });
 app.post('/api/current-track', auth, (req, res) => {
   radioState.currentTrack = String((req.body || {}).title || '').slice(0, 160);
