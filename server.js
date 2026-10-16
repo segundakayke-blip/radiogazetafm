@@ -29,6 +29,9 @@ let radioState = {
   mostPlayed: [{ title: 'Adicione uma música', artist: 'Painel do locutor' }]
 };
 const STATE_FILE = path.join(__dirname, 'radio-state.json');
+const RESERVE_DIR = path.join(__dirname, 'reserve-audio');
+if (!fs.existsSync(RESERVE_DIR)) fs.mkdirSync(RESERVE_DIR, { recursive: true });
+radioState.reserve = radioState.reserve || { enabled: false, tracks: [], index: 0, startedAt: null };
 try {
   if (fs.existsSync(STATE_FILE)) {
     const saved = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
@@ -36,6 +39,7 @@ try {
       radioState = {
         ...radioState, ...saved,
         settings: { ...radioState.settings, ...(saved.settings || {}) },
+        reserve: saved.reserve || radioState.reserve,
         mostPlayed: Array.isArray(saved.mostPlayed) ? saved.mostPlayed : radioState.mostPlayed
       };
     }
@@ -90,6 +94,12 @@ app.post('/api/logout', auth, (req, res) => {
   res.json({ ok: true });
 });
 app.get('/api/state', (req, res) => res.json({ state: radioState, messages: messages.slice(-60) }));
+app.get('/api/reserve/current', (req,res)=>{ const r=radioState.reserve||{enabled:false,tracks:[],index:0}; if(radioState.live||!r.enabled||!r.tracks?.length) return res.json({playing:false,live:radioState.live}); const index=((r.index||0)%r.tracks.length); const track=r.tracks[index]; res.json({playing:true,index,title:track.title,url:'/api/reserve/audio/'+encodeURIComponent(track.id),startedAt:r.startedAt||Date.now(),duration:track.duration||0}); });
+app.get('/api/reserve/audio/:id', (req,res)=>{ const track=(radioState.reserve?.tracks||[]).find(t=>t.id===req.params.id); if(!track) return res.status(404).end(); const file=path.join(RESERVE_DIR, path.basename(track.file)); if(!fs.existsSync(file)) return res.status(404).end(); res.setHeader('Content-Type',track.mime||'audio/mpeg'); res.setHeader('Accept-Ranges','bytes'); res.sendFile(file); });
+app.post('/api/reserve/upload', auth, (req,res)=>{ const b=req.body||{}; const tracks=radioState.reserve.tracks||[]; if(tracks.length>=30) return res.status(400).json({error:'Limite de 30 músicas na programação de reserva.'}); const match=String(b.data||'').match(/^data:(audio\/[a-zA-Z0-9.+-]+);base64,([\s\S]+)$/); if(!match) return res.status(400).json({error:'Arquivo de áudio inválido.'}); const bytes=Buffer.from(match[2],'base64'); if(bytes.length>10*1024*1024) return res.status(413).json({error:'Cada música deve ter até 10 MB.'}); const id=crypto.randomBytes(10).toString('hex'); const ext=({ 'audio/mpeg':'mp3','audio/mp3':'mp3','audio/wav':'wav','audio/ogg':'ogg','audio/mp4':'m4a','audio/aac':'aac','audio/webm':'webm' })[match[1]]||'audio'; const file=id+'.'+ext; fs.writeFileSync(path.join(RESERVE_DIR,file),bytes); tracks.push({id,title:String(b.title||'Música').slice(0,160),file,mime:match[1],duration:Number(b.duration)||0}); radioState.reserve.tracks=tracks; persistState(); broadcast({type:'state',state:radioState}); res.json({tracks:tracks.map(t=>({id:t.id,title:t.title,duration:t.duration})),state:radioState}); });
+app.post('/api/reserve/remove', auth, (req,res)=>{ const id=String((req.body||{}).id||''); const r=radioState.reserve; const t=r.tracks.find(x=>x.id===id); if(t){try{fs.unlinkSync(path.join(RESERVE_DIR,path.basename(t.file)))}catch{} r.tracks=r.tracks.filter(x=>x.id!==id); r.index=Math.max(0,Math.min(r.index,r.tracks.length-1)); persistState(); broadcast({type:'state',state:radioState});} res.json({state:radioState,tracks:r.tracks.map(x=>({id:x.id,title:x.title}))}); });
+app.post('/api/reserve/settings', auth, (req,res)=>{ const b=req.body||{}; radioState.reserve.enabled=Boolean(b.enabled); if(Number.isInteger(b.index)) radioState.reserve.index=Math.max(0,Math.min(b.index,Math.max(0,radioState.reserve.tracks.length-1))); radioState.reserve.startedAt=Date.now(); if(radioState.reserve.enabled) radioState.live=false; persistState(); broadcast({type:'state',state:radioState}); broadcast({type:'notice',message:radioState.reserve.enabled?'Programação automática de reserva ativada.':'Programação automática de reserva desativada.'}); res.json({state:radioState}); });
+app.post('/api/reserve/next', (req,res)=>{ const r=radioState.reserve; if(radioState.live||!r.enabled||!r.tracks.length) return res.json({ok:false}); r.index=(r.index+1)%r.tracks.length; r.startedAt=Date.now(); persistState(); broadcast({type:'state',state:radioState}); res.json({ok:true,index:r.index,track:r.tracks[r.index]}); });
 app.post('/api/broadcast', auth, (req, res) => {
   const { live, djName, program } = req.body || {};
   const previousDj = radioState.djName; const previousProgram = radioState.program;
@@ -100,6 +110,7 @@ app.post('/api/broadcast', auth, (req, res) => {
     program: typeof program === 'string' ? program.slice(0, 100) : radioState.program,
     startedAt: live ? (radioState.live ? radioState.startedAt : Date.now()) : null
   };
+  if (live && radioState.reserve) radioState.reserve.enabled = false;
   persistState();
   broadcast({ type: 'state', state: radioState });
   if (typeof djName === 'string' && typeof program === 'string' && (previousDj !== radioState.djName || previousProgram !== radioState.program)) broadcast({ type: 'notice', message: `Programação atualizada: ${radioState.program} — ${radioState.djName}.` });
