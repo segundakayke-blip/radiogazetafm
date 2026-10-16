@@ -42,16 +42,22 @@ try {
   }
 } catch (e) { console.error('Não foi possível carregar o estado salvo:', e.message); }
 function persistState() {
+  const tmp = STATE_FILE + '.tmp';
   try {
-    const tmp = STATE_FILE + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(radioState), 'utf8');
     fs.renameSync(tmp, STATE_FILE);
   } catch (e) {
     console.error('Não foi possível persistir o estado:', e.message);
+    try { if (fs.existsSync(tmp)) fs.unlinkSync(tmp); } catch (_) {}
+    const err = new Error('O servidor não conseguiu gravar as alterações. Verifique os logs/permissões do serviço no Render e tente novamente.');
+    err.status = 500;
+    throw err;
   }
 }
 let messages = [];
 const sessions = new Map();
+const socketIds = new Map();
+const socketsById = new Map();
 
 function safeEqual(a, b) {
   const aa = Buffer.from(String(a || ''));
@@ -128,11 +134,17 @@ app.post('/api/songs', auth, (req, res) => {
   res.json({ state: radioState });
 });
 wss.on('connection', (ws) => {
+  const clientId = crypto.randomBytes(10).toString('hex');
+  socketIds.set(ws, clientId); socketsById.set(clientId, ws);
+  ws.send(JSON.stringify({ type: 'hello', clientId }));
   ws.send(JSON.stringify({ type: 'state', state: radioState }));
   messages.slice(-60).forEach(m => ws.send(JSON.stringify({ type: 'chat', message: m })));
+  ws.on('close', () => { socketIds.delete(ws); socketsById.delete(clientId); });
   ws.on('message', (raw) => {
     let data;
     try { data = JSON.parse(raw.toString()); } catch { return; }
+    if (data.type === 'rtc-join') { broadcast({ type: 'rtc-join', from: clientId }); return; }
+    if (data.type === 'rtc') { const target = socketsById.get(String(data.to || '')); if (target && target.readyState === WebSocket.OPEN) target.send(JSON.stringify({ type: 'rtc', from: clientId, payload: data.payload })); return; }
     if (data.type !== 'chat') return;
     if (!radioState.live) { ws.send(JSON.stringify({ type: 'chat-error', error: 'O chat será liberado quando a transmissão começar.' })); return; }
     const name = String(data.name || 'Ouvinte').trim().slice(0, 32) || 'Ouvinte';
@@ -147,7 +159,12 @@ wss.on('connection', (ws) => {
 app.use((err, req, res, next) => {
   if (res.headersSent) return next(err);
   const status = err.status || err.statusCode || 500;
-  res.status(status).json({ error: status === 413 ? 'Arquivo muito grande. Reduza o tamanho da imagem e tente novamente.' : 'Não foi possível processar a solicitação. Confira os dados e tente novamente.' });
+  const message = status === 413
+    ? 'Arquivo muito grande. Reduza o tamanho da imagem e tente novamente.'
+    : (status >= 500 && err.message && err.message.startsWith('O servidor não conseguiu gravar')
+      ? err.message
+      : 'Não foi possível processar a solicitação. Confira os dados e tente novamente.');
+  res.status(status).json({ error: message });
 });
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 server.listen(PORT, '0.0.0.0', () => console.log(`GAZETA FM NACIONAL rodando na porta ${PORT}`));
