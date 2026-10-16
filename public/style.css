@@ -114,3 +114,14 @@ button.btn:not(.play-button):not(.remove):not(.close):not(.dot)::before{content:
 #startLive::before{content:'▶'!important}#endLive::before{content:'■'!important}#micOpen::before{content:'🎙'!important}#micClose::before{content:'🔇'!important}#saveProgram::before{content:'📅'!important}#saveDiscord::before{content:'🔗'!important}#saveTracks::before{content:'🎵'!important}#saveCarousel::before{content:'🖼'!important}#logout::before{content:'↪'!important}
 @media(max-width:800px){.hero:not(.has-custom-image){background:linear-gradient(140deg,#041b40,#0758a8 55%,#009ed0 85%,#20d9ff)!important}}
 .listener-count{display:inline-flex;align-items:center;gap:5px;font-size:.75rem;font-weight:700;color:var(--blue,#60a5fa);white-space:nowrap;margin-right:10px}.guest-name{font-weight:700;color:#60a5fa;margin-top:5px}.guest-name.hidden{display:none}
+
+/* V11 correction: counters stay visible in the transmission panel. */
+.live-counts{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:10px 0 16px;padding:9px 11px;border:1px solid #168cff44;border-radius:10px;background:#061326;color:#bcdcff;font-size:11px}
+.live-counts span{display:inline-flex;gap:5px;align-items:center}.live-counts b{font-size:13px;color:#fff}
+/* Keep file picker, play/disparar and remove controls on one line per slot. */
+.slot{display:grid;grid-template-columns:minmax(150px,1fr) auto auto;gap:8px;align-items:center;margin:9px 0;padding:10px}
+.slot input[type=file]{width:100%;min-width:0;font-size:11px;padding:7px;overflow:hidden}
+.slot input[type=file]::file-selector-button{border:0;border-radius:7px;padding:7px 9px;margin-right:7px;background:#0b4b86;color:#fff;font-weight:700;cursor:pointer}
+.slot button{white-space:nowrap;min-width:82px}
+.slot-name{grid-column:1/-1;min-width:0}
+@media(max-width:560px){.slot{grid-template-columns:minmax(0,1fr) auto auto;gap:5px;padding:7px}.slot button{min-width:0;padding:9px 7px;font-size:10px}.slot input[type=file]{font-size:9px;padding:5px}.slot input[type=file]::file-selector-button{padding:6px 5px;margin-right:4px}}
