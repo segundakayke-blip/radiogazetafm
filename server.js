@@ -2,6 +2,7 @@ const express = require('express');
 const http = require('http');
 const path = require('path');
 const crypto = require('crypto');
+const fs = require('fs');
 const WebSocket = require('ws');
 
 const app = express();
@@ -11,7 +12,7 @@ const PORT = process.env.PORT || 3000;
 const DJ_USERNAME = process.env.DJ_USERNAME || 'locutor';
 const DJ_PASSWORD = process.env.DJ_PASSWORD || 'TROQUE-ESTA-SENHA';
 
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '15mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 let radioState = {
@@ -27,6 +28,28 @@ let radioState = {
   ] },
   mostPlayed: [{ title: 'Adicione uma música', artist: 'Painel do locutor' }]
 };
+const STATE_FILE = path.join(__dirname, 'radio-state.json');
+try {
+  if (fs.existsSync(STATE_FILE)) {
+    const saved = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
+    if (saved && typeof saved === 'object') {
+      radioState = {
+        ...radioState, ...saved,
+        settings: { ...radioState.settings, ...(saved.settings || {}) },
+        mostPlayed: Array.isArray(saved.mostPlayed) ? saved.mostPlayed : radioState.mostPlayed
+      };
+    }
+  }
+} catch (e) { console.error('Não foi possível carregar o estado salvo:', e.message); }
+function persistState() {
+  try {
+    const tmp = STATE_FILE + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(radioState), 'utf8');
+    fs.renameSync(tmp, STATE_FILE);
+  } catch (e) {
+    console.error('Não foi possível persistir o estado:', e.message);
+  }
+}
 let messages = [];
 const sessions = new Map();
 
@@ -66,23 +89,32 @@ app.post('/api/broadcast', auth, (req, res) => {
   radioState = {
     ...radioState,
     live: Boolean(live),
-    djName: live ? String(djName || '').slice(0, 80) : '',
-    program: live ? String(program || '').slice(0, 100) : '',
+    djName: typeof djName === 'string' ? djName.slice(0, 80) : radioState.djName,
+    program: typeof program === 'string' ? program.slice(0, 100) : radioState.program,
     startedAt: live ? (radioState.live ? radioState.startedAt : Date.now()) : null
   };
+  persistState();
   broadcast({ type: 'state', state: radioState });
   res.json({ state: radioState });
 });
 app.post('/api/settings', auth, (req, res) => {
   const body = req.body || {};
-  if (typeof body.discordUrl === 'string') radioState.settings.discordUrl = body.discordUrl.slice(0, 500);
+  if (typeof body.discordUrl === 'string') {
+    const url = body.discordUrl.trim();
+    if (url && (!/^https:\/\//i.test(url) || url.length > 500)) {
+      return res.status(400).json({ error: 'O link do Discord precisa começar com https:// e ter até 500 caracteres.' });
+    }
+    radioState.settings.discordUrl = url;
+  }
   if (Array.isArray(body.carousel)) radioState.settings.carousel = body.carousel.slice(0, 3).map(slide => ({
     title: String(slide.title || '').slice(0, 100), subtitle: String(slide.subtitle || '').slice(0, 200), imageUrl: String(slide.imageUrl || '').slice(0, 2800000)
   }));
+  persistState();
   broadcast({ type: 'state', state: radioState }); res.json({ state: radioState });
 });
 app.post('/api/current-track', auth, (req, res) => {
   radioState.currentTrack = String((req.body || {}).title || '').slice(0, 160);
+  persistState();
   broadcast({ type: 'state', state: radioState }); res.json({ state: radioState });
 });
 app.post('/api/songs', auth, (req, res) => {
@@ -91,6 +123,7 @@ app.post('/api/songs', auth, (req, res) => {
     title: String(s.title || '').slice(0, 100),
     artist: String(s.artist || '').slice(0, 100)
   })).filter(s => s.title);
+  persistState();
   broadcast({ type: 'state', state: radioState });
   res.json({ state: radioState });
 });
@@ -110,6 +143,11 @@ wss.on('connection', (ws) => {
     if (messages.length > 100) messages = messages.slice(-100);
     broadcast({ type: 'chat', message });
   });
+});
+app.use((err, req, res, next) => {
+  if (res.headersSent) return next(err);
+  const status = err.status || err.statusCode || 500;
+  res.status(status).json({ error: status === 413 ? 'Arquivo muito grande. Reduza o tamanho da imagem e tente novamente.' : 'Não foi possível processar a solicitação. Confira os dados e tente novamente.' });
 });
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 server.listen(PORT, '0.0.0.0', () => console.log(`GAZETA FM NACIONAL rodando na porta ${PORT}`));
