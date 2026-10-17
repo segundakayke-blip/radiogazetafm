@@ -417,3 +417,12 @@ body{background:radial-gradient(ellipse at 50% -12%,#092657 0,transparent 45%),#
 .status.offline{box-shadow:0 0 10px #006eff0c}.tracks-panel{background:linear-gradient(145deg,#061a38,#031027)!important;border-color:#124a91!important}.rank{box-shadow:0 0 16px #007bff55!important}.footer-cta{background:linear-gradient(180deg,#020b1b00,#03132b88);position:relative}.footer-cta:after{content:"";display:block;width:180px;height:3px;margin:22px auto 0;background:linear-gradient(90deg,transparent,#007bff,#00d9ff,#007bff,transparent);filter:drop-shadow(0 0 5px #00baff)}
 @media(max-width:800px){.topbar nav .nav-home span{display:none}.topbar nav .nav-home.active:after{bottom:-5px}.discord-watermark{width:105px;height:95px;opacity:.12}.brand-wordmark{font-size:14px}}
 @media(max-width:480px){.brand-wordmark{font-size:12px}.brand-mark span{font-size:23px}.topbar nav #openGuest svg,.topbar nav #openLogin svg{width:14px;height:14px}.topbar nav #openGuest,.topbar nav #openLogin{gap:5px}}
+
+/* V30: remove ícones duplicados; manter apenas os SVGs originais do HTML */
+.topbar nav #openGuest::before,
+.topbar nav #openLogin::before,
+.topbar nav a:first-child::before,
+.discord-icon::before,
+.discord-icon::after { content:none !important; display:none !important; }
+.topbar nav .nav-home::before { content:none !important; display:none !important; }
+.discord-icon svg { display:block !important; }
