@@ -4,7 +4,6 @@ const path = require('path');
 const crypto = require('crypto');
 const fs = require('fs');
 const WebSocket = require('ws');
-const compression = require('compression');
 
 const app = express();
 const server = http.createServer(app);
@@ -17,8 +16,6 @@ const guestSessions = new Map();
 const guestRequests = new Map();
 let sampListeners = 0;
 
-// Comprime respostas HTML/CSS/JS/JSON para reduzir transferência e acelerar carregamento.
-app.use(compression({ threshold: 1024, level: 6 }));
 app.use(express.json({ limit: '15mb' }));
 // O painel do convidado é servido diretamente como arquivo próprio para o modal;
 // não redirecionar para a página inicial nem depender de /convidado.
