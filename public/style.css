@@ -426,3 +426,24 @@ body{background:radial-gradient(ellipse at 50% -12%,#092657 0,transparent 45%),#
 .discord-icon::after { content:none !important; display:none !important; }
 .topbar nav .nav-home::before { content:none !important; display:none !important; }
 .discord-icon svg { display:block !important; }
+
+
+/* V31: correções pontuais solicitadas */
+/* No botão Convidado, manter somente o indicador ciano; remover o SVG duplicado. */
+.topbar nav #openGuest > svg { display:none !important; }
+/* A navegação Início/Rádio usa somente o SVG da casinha do HTML. */
+.topbar nav .nav-home::before,
+.topbar nav a:first-child::before { content:none !important; display:none !important; }
+/* O Discord já tem a marca destacada no topo do cartão; remover ícone repetido no botão. */
+.discord-btn > svg { display:none !important; }
+/* Texto do programa e informação da faixa ligeiramente mais encorpados. */
+#djName { font-weight:650 !important; color:#d2e5ff !important; }
+.track-info .current-track { font-weight:650 !important; color:#d2e5ff !important; }
+
+
+/* V32: ajuste fino da navegação conforme solicitado */
+.topbar nav #openGuest > svg { display:none !important; }
+.topbar nav #openGuest::before { content:"●" !important; display:inline-block !important; color:#12eaff !important; font-size:11px !important; line-height:1 !important; text-shadow:0 0 9px #12eaff !important; margin-right:2px !important; }
+.topbar nav #openGuest .nav-chevron { display:inline-block !important; visibility:visible !important; }
+.topbar nav .nav-home > svg { display:inline-block !important; }
+.topbar nav .nav-home::before, .topbar nav .nav-home::before, .topbar nav .nav-home > .extra-icon { content:none !important; display:none !important; }
