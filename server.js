@@ -17,6 +17,9 @@ const guestRequests = new Map();
 let sampListeners = 0;
 
 app.use(express.json({ limit: '15mb' }));
+// O painel do convidado é servido diretamente como arquivo próprio para o modal;
+// não redirecionar para a página inicial nem depender de /convidado.
+app.get('/guest.html', (req, res) => res.sendFile(path.join(__dirname, 'public', 'guest.html')));
 app.use(express.static(path.join(__dirname, 'public')));
 
 let radioState = {
@@ -202,7 +205,6 @@ app.use((err, req, res, next) => {
   res.status(status).json({ error: message });
 });
 app.get('/ouvintes', (req,res)=>res.redirect(302, '/#ouvintes'));
-app.get('/convidado', (req,res)=>res.sendFile(path.join(__dirname,'public','guest.html')));
 app.get('/samp-radio', (req,res)=>res.sendFile(path.join(__dirname,'public','index.html')));
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 server.listen(PORT, '0.0.0.0', () => console.log(`GAZETA FM NACIONAL rodando na porta ${PORT}`));
