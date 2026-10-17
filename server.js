@@ -4,6 +4,7 @@ const path = require('path');
 const crypto = require('crypto');
 const fs = require('fs');
 const WebSocket = require('ws');
+const compression = require('compression');
 
 const app = express();
 const server = http.createServer(app);
@@ -16,11 +17,19 @@ const guestSessions = new Map();
 const guestRequests = new Map();
 let sampListeners = 0;
 
+// Comprime respostas HTML/CSS/JS/JSON para reduzir transferência e acelerar carregamento.
+app.use(compression({ threshold: 1024, level: 6 }));
 app.use(express.json({ limit: '15mb' }));
 // O painel do convidado é servido diretamente como arquivo próprio para o modal;
 // não redirecionar para a página inicial nem depender de /convidado.
 app.get('/guest.html', (req, res) => res.sendFile(path.join(__dirname, 'public', 'guest.html')));
-app.use(express.static(path.join(__dirname, 'public')));
+// HTML sempre revalidado; assets estáticos podem ser mantidos em cache por 10 minutos.
+app.use(express.static(path.join(__dirname, 'public'), {
+  maxAge: '10m',
+  setHeaders(res, filePath) {
+    if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache');
+  }
+}));
 
 let radioState = {
   live: false,
