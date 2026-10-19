@@ -17,6 +17,19 @@ const guestRequests = new Map();
 let sampListeners = 0;
 
 app.use(express.json({ limit: '15mb' }));
+const JOBS_FILE = path.join(__dirname, 'jobs.json');
+function readJobs(){ try { const v=JSON.parse(fs.readFileSync(JOBS_FILE,'utf8')); return Array.isArray(v)?v:[]; } catch { return []; } }
+function writeJobs(jobs){ const tmp=JOBS_FILE+'.tmp'; fs.writeFileSync(tmp,JSON.stringify(jobs,null,2)); fs.renameSync(tmp,JOBS_FILE); }
+app.get('/api/jobs',(req,res)=>res.json({jobs:readJobs().sort((a,b)=>b.createdAt-a.createdAt)}));
+app.post('/api/jobs',(req,res)=>{
+ const b=req.body||{}; const fields={company:100,cnpj:18,role:100,salary:60,location:120,contact:120,serverUrl:300,description:1200}; const job={};
+ for(const [k,max] of Object.entries(fields)) job[k]=String(b[k]||'').trim().slice(0,max);
+ if(!job.company||!job.cnpj||!job.role||!job.location||!job.contact) return res.status(400).json({error:'Preencha empresa, CNPJ, cargo, local e contato.'});
+ if(job.serverUrl && !/^https?:\/\//i.test(job.serverUrl)) return res.status(400).json({error:'O link deve começar com http:// ou https://.'});
+ job.photo=''; if(b.photo){ const m=String(b.photo).match(/^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$/); if(!m)return res.status(400).json({error:'Foto inválida. Use PNG, JPG ou WEBP.'}); const bytes=Buffer.from(m[2],'base64'); if(bytes.length>2*1024*1024)return res.status(413).json({error:'A foto deve ter até 2 MB.'}); job.photo=`data:${m[1]};base64,${m[2]}`; }
+ job.id=crypto.randomBytes(8).toString('hex'); job.createdAt=Date.now(); const jobs=readJobs(); jobs.unshift(job); writeJobs(jobs); res.status(201).json({ok:true,job});
+});
+
 // O painel do convidado é servido diretamente como arquivo próprio para o modal;
 // não redirecionar para a página inicial nem depender de /convidado.
 app.get('/guest.html', (req, res) => res.sendFile(path.join(__dirname, 'public', 'guest.html')));
@@ -40,14 +53,11 @@ let radioState = {
     { title: 'VOCÊ ESTÁ', subtitle: 'Na Gazeta FM Nacional.', imageUrl: '' }
   ] },
   mostPlayed: [{ title: 'Adicione uma música', artist: 'Painel do locutor' }],
-  guest: { username: '', passwordHash: '', name: '', active: false },
-  jobs: []
+  guest: { username: '', passwordHash: '', name: '', active: false }
 };
 const STATE_FILE = path.join(__dirname, 'radio-state.json');
 const RESERVE_DIR = path.join(__dirname, 'reserve-audio');
-const JOB_PHOTO_DIR = path.join(__dirname, 'job-photos');
 if (!fs.existsSync(RESERVE_DIR)) fs.mkdirSync(RESERVE_DIR, { recursive: true });
-if (!fs.existsSync(JOB_PHOTO_DIR)) fs.mkdirSync(JOB_PHOTO_DIR, { recursive: true });
 radioState.reserve = radioState.reserve || { enabled: false, tracks: [], index: 0, startedAt: null };
 try {
   if (fs.existsSync(STATE_FILE)) {
@@ -57,7 +67,6 @@ try {
         ...radioState, ...saved,
         settings: { ...radioState.settings, ...(saved.settings || {}) },
         guest: { ...radioState.guest, ...(saved.guest || {}) },
-        jobs: Array.isArray(saved.jobs) ? saved.jobs : [],
         reserve: saved.reserve || radioState.reserve,
         mostPlayed: Array.isArray(saved.mostPlayed) ? saved.mostPlayed : radioState.mostPlayed
       };
@@ -113,18 +122,7 @@ app.post('/api/logout', auth, (req, res) => {
   sessions.delete(token);
   res.json({ ok: true });
 });
-app.get('/api/state', (req, res) => { const { jobs, ...publicState } = radioState; res.json({ state: { ...publicState, guest: { active: !!radioState.guest?.active, name: radioState.guest?.active ? radioState.guest.name : '' }, listeners: [...wss.clients].filter(c => c.readyState === WebSocket.OPEN && c.radioRole === 'listener').length, sampListeners }, sampListeners, messages: messages.slice(-60) }); });
-app.get('/api/jobs', (req,res) => res.json({ jobs: (radioState.jobs || []).map(({id,company,cnpj,role,salary,location,contact,serverLink,photoUrl,description,createdAt})=>({id,company,cnpj,role,salary,location,contact,serverLink,photo:photoUrl||'',description,createdAt})) }));
-app.get('/api/jobs/photo/:filename', (req,res)=>{const name=path.basename(String(req.params.filename||''));if(!/^[a-f0-9]+\.(png|jpg|webp)$/.test(name))return res.status(404).end();const file=path.join(JOB_PHOTO_DIR,name);if(!fs.existsSync(file))return res.status(404).end();res.setHeader('Cache-Control','public, max-age=86400');res.sendFile(file)});
-app.post('/api/jobs', (req,res) => {
-  const b=req.body||{}; const company=String(b.company||'').trim().slice(0,100), cnpj=String(b.cnpj||'').trim().slice(0,24), role=String(b.role||'').trim().slice(0,100), salary=String(b.salary||'').trim().slice(0,80), location=String(b.location||'').trim().slice(0,120), contact=String(b.contact||'').trim().slice(0,160), serverLink=String(b.serverLink||'').trim().slice(0,300), description=String(b.description||'').trim().slice(0,800), photo=String(b.photo||'');
-  if(!company||!cnpj||!role||!salary||!location||!contact) return res.status(400).json({error:'Preencha empresa, CNPJ, cargo, salário, local e contato.'});
-  if(serverLink && !/^https:\/\//i.test(serverLink)) return res.status(400).json({error:'O link do servidor precisa começar com https://'});
-  if(photo && (!/^data:image\/(png|jpeg|webp);base64,/i.test(photo) || photo.length>3_000_000)) return res.status(400).json({error:'A foto precisa ser PNG, JPG ou WEBP e ter até 2 MB.'});
-  const jobs=radioState.jobs||(radioState.jobs=[]); if(jobs.length>=200) return res.status(429).json({error:'O balcão atingiu o limite de anúncios. Tente mais tarde.'});
-  const id=crypto.randomBytes(10).toString('hex'); let photoUrl=''; if(photo){const match=photo.match(/^data:image\/(png|jpeg|webp);base64,([\s\S]+)$/i);const ext=match[1].toLowerCase()==='jpeg'?'jpg':match[1].toLowerCase();const file=id+'.'+ext;fs.writeFileSync(path.join(JOB_PHOTO_DIR,file),Buffer.from(match[2],'base64'));photoUrl='/api/jobs/photo/'+file;}
-  const job={id,company,cnpj,role,salary,location,contact,serverLink,photoUrl,description,createdAt:Date.now()}; jobs.unshift(job); persistState(); broadcast({type:'jobs-updated'}); res.status(201).json({ok:true,job:{...job,photo:photoUrl}});
-});
+app.get('/api/state', (req, res) => res.json({ state: { ...radioState, guest: { active: !!radioState.guest?.active, name: radioState.guest?.active ? radioState.guest.name : '' }, listeners: [...wss.clients].filter(c => c.readyState === WebSocket.OPEN && c.radioRole === 'listener').length, sampListeners }, sampListeners, messages: messages.slice(-60) }));
 app.post('/api/guest/settings', auth, (req,res)=>{ const b=req.body||{}; const username=String(b.username||'').trim().slice(0,32); const password=String(b.password||'').slice(0,100); const name=String(b.name||username).trim().slice(0,32); if(username && (username.length<3 || password.length<4 || !name)) return res.status(400).json({error:'Use usuário com 3+ caracteres, senha com 4+ e informe o nome.'}); radioState.guest={username,passwordHash:username?crypto.createHash('sha256').update(password).digest('hex'):'',name,active:!!username}; persistState(); broadcast({type:'state',state:radioState}); res.json({ok:true,enabled:!!username}); });
 app.post('/api/guest/login',(req,res)=>{ const b=req.body||{}; const g=radioState.guest||{}; const hash=crypto.createHash('sha256').update(String(b.password||'')).digest('hex'); if(!g.active || !safeEqual(b.username,g.username) || !safeEqual(hash,g.passwordHash)) return res.status(401).json({error:'Usuário ou senha incorretos, ou acesso de convidado desativado.'}); for (const [id,r] of guestRequests) if(r.username===g.username && r.status==='pending') guestRequests.delete(id); const requestId=crypto.randomBytes(16).toString('hex'); guestRequests.set(requestId,{username:g.username,name:g.name,status:'pending',created:Date.now()}); broadcast({type:'guest-requests'}); res.json({requestId,status:'pending',message:'Solicitação enviada. Aguarde o locutor aceitar.'}); });
 app.get('/api/guest/status/:id',(req,res)=>{const r=guestRequests.get(String(req.params.id||''));if(!r)return res.status(404).json({error:'Solicitação não encontrada.'});if(r.status==='rejected'){guestRequests.delete(String(req.params.id));return res.status(403).json({status:'rejected',error:'O locutor recusou a solicitação.'});}if(r.status!=='approved')return res.json({status:'pending'});if(!r.token){r.token=crypto.randomBytes(32).toString('hex');guestSessions.set(r.token,{name:r.name,created:Date.now()});}res.json({status:'approved',token:r.token,name:r.name});});
