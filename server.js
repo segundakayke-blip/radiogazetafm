@@ -20,10 +20,6 @@ app.use(express.json({ limit: '15mb' }));
 // O painel do convidado é servido diretamente como arquivo próprio para o modal;
 // não redirecionar para a página inicial nem depender de /convidado.
 app.get('/guest.html', (req, res) => res.sendFile(path.join(__dirname, 'public', 'guest.html')));
-app.get('/gazeta-fm-logo.png', (req, res) => {
-  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-  res.type('png').sendFile(path.join(__dirname, 'public', 'gazeta-fm-logo.png'));
-});
 // HTML sempre revalidado; assets estáticos podem ser mantidos em cache por 10 minutos.
 app.use(express.static(path.join(__dirname, 'public'), {
   maxAge: '10m',
