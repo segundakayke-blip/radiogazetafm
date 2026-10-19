@@ -506,3 +506,18 @@ body{background:radial-gradient(ellipse at 50% -12%,#092657 0,transparent 45%),#
 .job-card-actions svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}.job-card-actions .job-like{min-width:74px;gap:7px}
 .job-comments{display:none;margin-top:12px;padding-top:12px;border-top:1px solid #164779}.job-comments.open{display:block}.job-comment-list{display:grid;gap:7px;margin-bottom:10px}.job-comment{margin:0;padding:8px 10px;border-radius:8px;background:#031126;color:#c6deef;font-size:12px;overflow-wrap:anywhere}.job-comment-form{display:grid;gap:8px}.job-comment-form textarea{resize:vertical}.track-main{display:flex;align-items:center;gap:12px;min-width:0;flex:1}.track-title-wrap{min-width:0;overflow-wrap:anywhere}.track-artist-photo{width:52px;height:52px;flex:0 0 52px;object-fit:cover;border-radius:50%;border:1px solid #20c8ff88}.track-votes{display:flex;align-items:center;gap:7px;flex-shrink:0}.track-vote{display:flex;align-items:center;gap:5px;padding:7px 9px;border:1px solid #168cff55;border-radius:10px;background:#04152a;color:#dff7ff;font:inherit;font-size:11px;cursor:pointer}.track-vote svg{width:18px;height:18px;fill:none;stroke:#20c8ff;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}.track-vote.dislike svg{stroke:#8db6dc}.track-vote:hover{background:#07376a}.track-stat-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid #164779;color:#c6deef;font-size:11px}.track-stat-row strong{white-space:nowrap;color:#8ce9ff}
 @media(max-width:520px){.job-photo-gallery{flex-direction:row;flex-wrap:wrap}.job-photo-gallery .job-photo{width:calc(33.333% - 5px);height:82px}.track-row{flex-wrap:wrap}.track-main{flex:1 1 70%;}.track-votes{margin-left:auto}.track-artist-photo{width:44px;height:44px;flex-basis:44px}}
+
+
+/* Ajustes pontuais pedidos: aba independente das mais tocadas e cartão Programa Atual. */
+.tracks-tab-hidden { display:none !important; }
+#mais-tocadas:not(.tracks-tab-hidden) { display:block; width:calc(100% - 32px); max-width:1128px; margin:24px auto 28px; }
+.topbar nav a.active { color:#ffffff; }
+.now-playing { display:flex; align-items:center; gap:20px; padding:18px; border-radius:18px; background:linear-gradient(125deg,#061a39 0%,#082b58 58%,#04152d 100%); }
+.now-playing .cover { flex:0 0 132px; width:132px; height:112px; display:grid; place-items:center; padding:7px; background:linear-gradient(145deg,#0a3f82,#03152f); border:1px solid #21caff; border-radius:14px; overflow:hidden; }
+.now-playing .cover .station-logo { width:100%; height:100%; object-fit:contain; object-position:center; border-radius:8px; }
+.now-playing .track-info { min-width:0; flex:1; }
+.now-playing #programName { margin:7px 0 5px; line-height:1.2; }
+.now-playing #djName { margin:0; }
+.now-playing .current-track { max-width:100%; width:max-content; }
+.now-playing .play-button { flex:0 0 48px; width:48px; height:48px; border-radius:50%; }
+@media(max-width:650px){ .now-playing{gap:12px;padding:12px}.now-playing .cover{flex:0 0 86px;width:86px;height:86px;padding:5px}.now-playing #programName{font-size:16px}.now-playing .play-button{flex:0 0 40px;width:40px;height:40px}.now-playing .current-track{white-space:normal;overflow-wrap:anywhere}#mais-tocadas:not(.tracks-tab-hidden){width:calc(100% - 24px);margin:14px 12px 24px} }
