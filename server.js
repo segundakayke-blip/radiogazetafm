@@ -1,3 +1,4 @@
+
 const express = require('express');
 const http = require('http');
 const path = require('path');
@@ -237,4 +238,3 @@ app.get('/ouvintes', (req,res)=>res.redirect(302, '/#ouvintes'));
 app.get('/samp-radio', (req,res)=>res.sendFile(path.join(__dirname,'public','index.html')));
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 server.listen(PORT, '0.0.0.0', () => console.log(`GAZETA FM NACIONAL rodando na porta ${PORT}`));
-
