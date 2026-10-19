@@ -567,3 +567,16 @@ body{background:radial-gradient(ellipse at 50% -12%,#092657 0,transparent 45%),#
 .hero.carousel-changing .hero-art{opacity:.45;transform:scale(1.025);}
 @media(prefers-reduced-motion:reduce){.hero .hero-copy,.hero .hero-art{transition:none}.hero.carousel-changing .hero-copy,.hero.carousel-changing .hero-art{transform:none;opacity:1}}
 
+
+/* V51: quando um slide tem imagem personalizada, ela ocupa todo o carrossel.
+   Mantém os controles/dots e não altera a lógica do player nem os demais sistemas. */
+.hero.has-custom-image{
+  padding:0!important;
+  background-size:cover!important;
+  background-position:center center!important;
+  background-repeat:no-repeat!important;
+}
+.hero.has-custom-image::before{display:none!important}
+.hero.has-custom-image .hero-copy{display:none!important}
+.hero.has-custom-image .hero-art{display:none!important}
+@media(max-width:800px){.hero.has-custom-image{min-height:260px;background-size:cover!important;background-position:center center!important}}
