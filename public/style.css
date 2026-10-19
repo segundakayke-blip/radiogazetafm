@@ -560,3 +560,10 @@ body{background:radial-gradient(ellipse at 50% -12%,#092657 0,transparent 45%),#
   .radio-card .now-playing .current-track { padding:7px 8px; font-size:11px; }
   .radio-card .now-playing .play-button { flex:0 0 38px; width:38px; height:38px; }
 }
+
+/* V50: transição suave do carrossel; não altera o funcionamento dos slides */
+.hero .hero-copy,.hero .hero-art{transition:opacity .38s ease,transform .42s cubic-bezier(.2,.75,.25,1),background-position .42s ease;}
+.hero.carousel-changing .hero-copy{opacity:.35;transform:translateY(5px);}
+.hero.carousel-changing .hero-art{opacity:.45;transform:scale(1.025);}
+@media(prefers-reduced-motion:reduce){.hero .hero-copy,.hero .hero-art{transition:none}.hero.carousel-changing .hero-copy,.hero.carousel-changing .hero-art{transform:none;opacity:1}}
+
