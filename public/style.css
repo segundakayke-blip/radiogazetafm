@@ -38,6 +38,8 @@ app.post('/api/jobs/:id/comments',(req,res)=>{const jobs=readJobs();const job=jo
 // não redirecionar para a página inicial nem depender de /convidado.
 app.get('/guest.html', (req, res) => res.sendFile(path.join(__dirname, 'public', 'guest.html')));
 // HTML sempre revalidado; assets estáticos podem ser mantidos em cache por 10 minutos.
+app.get('/style.css', (req, res, next) => { res.type('text/css'); res.setHeader('Cache-Control','no-cache'); res.sendFile(path.join(__dirname,'public','style.css'), err => { if(err) next(err); }); });
+app.get('/app.js', (req, res, next) => { res.type('application/javascript'); res.setHeader('Cache-Control','no-cache'); res.sendFile(path.join(__dirname,'public','app.js'), err => { if(err) next(err); }); });
 app.use(express.static(path.join(__dirname, 'public'), {
   maxAge: '10m',
   setHeaders(res, filePath) {
