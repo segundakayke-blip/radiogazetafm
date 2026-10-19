@@ -114,17 +114,24 @@ app.post('/api/logout', auth, (req, res) => {
   res.json({ ok: true });
 });
 app.get('/api/state', (req, res) => { const { jobs, ...publicState } = radioState; res.json({ state: { ...publicState, guest: { active: !!radioState.guest?.active, name: radioState.guest?.active ? radioState.guest.name : '' }, listeners: [...wss.clients].filter(c => c.readyState === WebSocket.OPEN && c.radioRole === 'listener').length, sampListeners }, sampListeners, messages: messages.slice(-60) }); });
-app.get('/api/jobs', (req,res) => res.json({ jobs: (radioState.jobs || []).map(({id,company,cnpj,role,salary,location,contact,serverLink,photoUrl,description,createdAt})=>({id,company,cnpj,role,salary,location,contact,serverLink,photo:photoUrl||'',description,createdAt})) }));
-app.get('/api/jobs/photo/:filename', (req,res)=>{const name=path.basename(String(req.params.filename||''));if(!/^[a-f0-9]+\.(png|jpg|webp)$/.test(name))return res.status(404).end();const file=path.join(JOB_PHOTO_DIR,name);if(!fs.existsSync(file))return res.status(404).end();res.setHeader('Cache-Control','public, max-age=86400');res.sendFile(file)});
+app.get('/api/jobs', (req,res) => res.json({ jobs: (radioState.jobs || []).map(j=>({id:j.id,company:j.company,cnpj:j.cnpj,role:j.role,salary:j.salary,location:j.location,contact:j.contact,serverLink:j.serverLink,photo:j.photoUrl||'',photos:Array.isArray(j.photoUrls)?j.photoUrls:(j.photoUrl?[j.photoUrl]:[]),description:j.description,createdAt:j.createdAt,likes:Number(j.likes)||0,comments:Array.isArray(j.comments)?j.comments:[]})) }));
+app.get('/api/jobs/photo/:filename', (req,res)=>{const name=path.basename(String(req.params.filename||''));if(!/^[a-f0-9-]+\.(png|jpg|webp)$/.test(name))return res.status(404).end();const file=path.join(JOB_PHOTO_DIR,name);if(!fs.existsSync(file))return res.status(404).end();res.setHeader('Cache-Control','public, max-age=86400');res.sendFile(file)});
+function saveJobPhoto(data,id){
+  if(!data)return '';
+  if(typeof data!=='string'||!/^data:image\/(png|jpeg|webp);base64,/i.test(data)||data.length>3_000_000)throw Object.assign(new Error('Cada foto precisa ser PNG, JPG ou WEBP e ter até 2 MB.'),{status:400});
+  const match=data.match(/^data:image\/(png|jpeg|webp);base64,([\s\S]+)$/i);const ext=match[1].toLowerCase()==='jpeg'?'jpg':match[1].toLowerCase();const file=id+'-'+crypto.randomBytes(3).toString('hex')+'.'+ext;fs.writeFileSync(path.join(JOB_PHOTO_DIR,file),Buffer.from(match[2],'base64'));return '/api/jobs/photo/'+file;
+}
 app.post('/api/jobs', (req,res) => {
-  const b=req.body||{}; const company=String(b.company||'').trim().slice(0,100), cnpj=String(b.cnpj||'').trim().slice(0,24), role=String(b.role||'').trim().slice(0,100), salary=String(b.salary||'').trim().slice(0,80), location=String(b.location||'').trim().slice(0,120), contact=String(b.contact||'').trim().slice(0,160), serverLink=String(b.serverLink||'').trim().slice(0,300), description=String(b.description||'').trim().slice(0,800), photo=String(b.photo||'');
+  const b=req.body||{}; const company=String(b.company||'').trim().slice(0,100), cnpj=String(b.cnpj||'').trim().slice(0,24), role=String(b.role||'').trim().slice(0,100), salary=String(b.salary||'').trim().slice(0,80), location=String(b.location||'').trim().slice(0,120), contact=String(b.contact||'').trim().slice(0,160), serverLink=String(b.serverLink||'').trim().slice(0,300), description=String(b.description||'').trim().slice(0,800);
   if(!company||!cnpj||!role||!salary||!location||!contact) return res.status(400).json({error:'Preencha empresa, CNPJ, cargo, salário, local e contato.'});
   if(serverLink && !/^https:\/\//i.test(serverLink)) return res.status(400).json({error:'O link do servidor precisa começar com https://'});
-  if(photo && (!/^data:image\/(png|jpeg|webp);base64,/i.test(photo) || photo.length>3_000_000)) return res.status(400).json({error:'A foto precisa ser PNG, JPG ou WEBP e ter até 2 MB.'});
+  const photoInputs=Array.isArray(b.photos)?b.photos.slice(0,3):(b.photo?[b.photo]:[]); if(Array.isArray(b.photos)&&b.photos.length>3)return res.status(400).json({error:'Escolha no máximo 3 fotos.'});
   const jobs=radioState.jobs||(radioState.jobs=[]); if(jobs.length>=200) return res.status(429).json({error:'O balcão atingiu o limite de anúncios. Tente mais tarde.'});
-  const id=crypto.randomBytes(10).toString('hex'); let photoUrl=''; if(photo){const match=photo.match(/^data:image\/(png|jpeg|webp);base64,([\s\S]+)$/i);const ext=match[1].toLowerCase()==='jpeg'?'jpg':match[1].toLowerCase();const file=id+'.'+ext;fs.writeFileSync(path.join(JOB_PHOTO_DIR,file),Buffer.from(match[2],'base64'));photoUrl='/api/jobs/photo/'+file;}
-  const job={id,company,cnpj,role,salary,location,contact,serverLink,photoUrl,description,createdAt:Date.now()}; jobs.unshift(job); persistState(); broadcast({type:'jobs-updated'}); res.status(201).json({ok:true,job:{...job,photo:photoUrl}});
+  const id=crypto.randomBytes(10).toString('hex'); let photoUrls=[];try{photoUrls=photoInputs.filter(Boolean).map((p,i)=>saveJobPhoto(p,id+'-'+i));}catch(e){return res.status(e.status||400).json({error:e.message})}
+  const job={id,company,cnpj,role,salary,location,contact,serverLink,photoUrls,photoUrl:photoUrls[0]||'',description,likes:0,comments:[],createdAt:Date.now()}; jobs.unshift(job); try{persistState()}catch(e){return res.status(500).json({error:e.message})} broadcast({type:'jobs-updated'}); res.status(201).json({ok:true,job:{...job,photo:job.photoUrl}});
 });
+app.post('/api/jobs/:id/like',(req,res)=>{const job=(radioState.jobs||[]).find(j=>j.id===String(req.params.id));if(!job)return res.status(404).json({error:'Vaga não encontrada.'});job.likes=(Number(job.likes)||0)+1;try{persistState()}catch(e){return res.status(500).json({error:e.message})}broadcast({type:'jobs-updated'});res.json({ok:true,likes:job.likes})});
+app.post('/api/jobs/:id/comments',(req,res)=>{const job=(radioState.jobs||[]).find(j=>j.id===String(req.params.id));if(!job)return res.status(404).json({error:'Vaga não encontrada.'});const name=String(req.body?.name||'Ouvinte').trim().slice(0,40)||'Ouvinte';const text=String(req.body?.text||'').trim().slice(0,500);if(!text)return res.status(400).json({error:'Escreva seu comentário ou manifeste interesse.'});if(!Array.isArray(job.comments))job.comments=[];if(job.comments.length>=500)job.comments.shift();const comment={id:crypto.randomBytes(8).toString('hex'),name,text,createdAt:Date.now()};job.comments.push(comment);try{persistState()}catch(e){return res.status(500).json({error:e.message})}broadcast({type:'jobs-updated'});res.status(201).json({ok:true,comment})});
 app.post('/api/guest/settings', auth, (req,res)=>{ const b=req.body||{}; const username=String(b.username||'').trim().slice(0,32); const password=String(b.password||'').slice(0,100); const name=String(b.name||username).trim().slice(0,32); if(username && (username.length<3 || password.length<4 || !name)) return res.status(400).json({error:'Use usuário com 3+ caracteres, senha com 4+ e informe o nome.'}); radioState.guest={username,passwordHash:username?crypto.createHash('sha256').update(password).digest('hex'):'',name,active:!!username}; persistState(); broadcast({type:'state',state:radioState}); res.json({ok:true,enabled:!!username}); });
 app.post('/api/guest/login',(req,res)=>{ const b=req.body||{}; const g=radioState.guest||{}; const hash=crypto.createHash('sha256').update(String(b.password||'')).digest('hex'); if(!g.active || !safeEqual(b.username,g.username) || !safeEqual(hash,g.passwordHash)) return res.status(401).json({error:'Usuário ou senha incorretos, ou acesso de convidado desativado.'}); for (const [id,r] of guestRequests) if(r.username===g.username && r.status==='pending') guestRequests.delete(id); const requestId=crypto.randomBytes(16).toString('hex'); guestRequests.set(requestId,{username:g.username,name:g.name,status:'pending',created:Date.now()}); broadcast({type:'guest-requests'}); res.json({requestId,status:'pending',message:'Solicitação enviada. Aguarde o locutor aceitar.'}); });
 app.get('/api/guest/status/:id',(req,res)=>{const r=guestRequests.get(String(req.params.id||''));if(!r)return res.status(404).json({error:'Solicitação não encontrada.'});if(r.status==='rejected'){guestRequests.delete(String(req.params.id));return res.status(403).json({status:'rejected',error:'O locutor recusou a solicitação.'});}if(r.status!=='approved')return res.json({status:'pending'});if(!r.token){r.token=crypto.randomBytes(32).toString('hex');guestSessions.set(r.token,{name:r.name,created:Date.now()});}res.json({status:'approved',token:r.token,name:r.name});});
@@ -181,14 +188,15 @@ app.post('/api/current-track', auth, (req, res) => {
 });
 app.post('/api/songs', auth, (req, res) => {
   const songs = Array.isArray(req.body.songs) ? req.body.songs.slice(0, 20) : [];
-  radioState.mostPlayed = songs.map(s => ({
-    title: String(s.title || '').slice(0, 100),
-    artist: String(s.artist || '').slice(0, 100)
-  })).filter(s => s.title);
-  persistState();
-  broadcast({ type: 'state', state: radioState });
-  res.json({ state: radioState });
+  const previous = Array.isArray(radioState.mostPlayed) ? radioState.mostPlayed : [];
+  radioState.mostPlayed = songs.map(s => {
+    const title=String(s.title||'').trim().slice(0,100), artist=String(s.artist||'').trim().slice(0,100), photoUrl=String(s.photoUrl||'').trim().slice(0,500);
+    const old=previous.find(p=>p.title===title&&String(p.artist||'')===artist)||{};
+    return {title,artist,photoUrl,likes:Number(old.likes)||0,dislikes:Number(old.dislikes)||0};
+  }).filter(s => s.title);
+  persistState(); broadcast({ type: 'state', state: radioState }); res.json({ state: radioState });
 });
+app.post('/api/songs/feedback', (req,res)=>{const i=Number(req.body?.index), type=String(req.body?.type||'');if(!Number.isInteger(i)||i<0||i>=radioState.mostPlayed.length||!['like','dislike'].includes(type))return res.status(400).json({error:'Voto inválido.'});const song=radioState.mostPlayed[i];song.likes=Number(song.likes)||0;song.dislikes=Number(song.dislikes)||0;const voteKey='gazetaSongVote:'+String(song.title)+'|'+String(song.artist||'');const oldVote=String(req.body?.previous||'');if(oldVote==='like')song.likes=Math.max(0,song.likes-1);if(oldVote==='dislike')song.dislikes=Math.max(0,song.dislikes-1);if(type==='like')song.likes++;else song.dislikes++;persistState();broadcast({type:'state',state:radioState});res.json({ok:true,likes:song.likes,dislikes:song.dislikes})});
 wss.on('connection', (ws) => {
   const clientId = crypto.randomBytes(10).toString('hex');
   socketIds.set(ws, clientId); socketsById.set(clientId, ws); ws.radioRole='listener';
