@@ -474,3 +474,35 @@ body{background:radial-gradient(ellipse at 50% -12%,#092657 0,transparent 45%),#
 /* Imagens responsivas sem distorcer a proporção do banner ou das vagas. */
 .hero-art { background-repeat: no-repeat; background-position: center; background-size: cover; }
 .job-photo { object-fit: cover; max-width: 100%; }
+
+
+/* Ajustes solicitados: casinha sem riscos decorativos duplicados. */
+.topbar nav .nav-home::after { content: none !important; display: none !important; }
+.topbar nav .nav-home::before { content: none !important; display: none !important; }
+/* A seção de empregos é uma aba própria; não aparece junto à página inicial. */
+.jobs-tab-hidden, .jobs-home-hidden { display: none !important; }
+#balcao-empregos { max-width: 1128px; margin: 24px auto 28px; }
+/* Programação atual com estados mais claros, sem alterar os IDs nem a lógica do player. */
+.now-playing { gap: 18px; padding: 20px; }
+.cover { overflow: hidden; padding: 0; }
+.cover .station-logo { display:block; width:100%; height:100%; object-fit:cover; border-radius:inherit; }
+.track-info .muted { display:inline-block; color:#6ddcff; font-size:10px; font-weight:800; letter-spacing:.16em; }
+#programName { color:#f5fbff; font-size:20px; font-weight:850; letter-spacing:-.025em; }
+#djName { margin-top:5px; color:#b9d9f3; line-height:1.5; }
+.current-track { display:inline-flex; align-items:center; gap:7px; margin-top:10px !important; padding:7px 10px; border:1px solid #168cff55; border-radius:9px; background:#03152b; color:#dff7ff !important; }
+#liveBadge { white-space:nowrap; }
+.job-publish-dot { font-size:10px; color:#b9f8ff; text-shadow:0 0 8px #12eaff; }
+@media(max-width:800px){#balcao-empregos{margin:14px 12px 24px}.now-playing{gap:12px;padding:13px}#programName{font-size:16px}.track-info .muted{font-size:9px}}
+
+/* Ajustes solicitados: apenas um sublinhado no ícone Início ativo. */
+.topbar nav .nav-home{position:relative!important;border-bottom:0!important;text-decoration:none!important}
+.topbar nav .nav-home::before{content:none!important;display:none!important}
+.topbar nav .nav-home::after{content:none!important;display:none!important}
+.topbar nav .nav-home.active::after{content:""!important;display:block!important;position:absolute!important;height:2px!important;left:2px!important;right:2px!important;bottom:-9px!important;border:0!important;border-radius:3px!important;background:linear-gradient(90deg,#00e5ff,#168cff)!important;box-shadow:0 0 8px #00baff!important}
+@media(max-width:800px){.topbar nav .nav-home.active::after{bottom:-5px!important}}
+.jobs-tab-hidden,.jobs-home-hidden{display:none!important}
+.job-photo-preview{margin-top:9px;padding:12px 14px;border:1px dashed #168cff88;border-radius:12px;background:#071a34;color:#a9dfff;font-size:12px;overflow-wrap:anywhere}
+.job-photo-gallery{display:flex;flex-direction:column;gap:7px;min-width:0}.job-photo-gallery .job-photo{width:108px;height:82px;object-fit:cover}
+.job-card-actions svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}.job-card-actions .job-like{min-width:74px;gap:7px}
+.job-comments{display:none;margin-top:12px;padding-top:12px;border-top:1px solid #164779}.job-comments.open{display:block}.job-comment-list{display:grid;gap:7px;margin-bottom:10px}.job-comment{margin:0;padding:8px 10px;border-radius:8px;background:#031126;color:#c6deef;font-size:12px;overflow-wrap:anywhere}.job-comment-form{display:grid;gap:8px}.job-comment-form textarea{resize:vertical}.track-main{display:flex;align-items:center;gap:12px;min-width:0;flex:1}.track-title-wrap{min-width:0;overflow-wrap:anywhere}.track-artist-photo{width:52px;height:52px;flex:0 0 52px;object-fit:cover;border-radius:50%;border:1px solid #20c8ff88}.track-votes{display:flex;align-items:center;gap:7px;flex-shrink:0}.track-vote{display:flex;align-items:center;gap:5px;padding:7px 9px;border:1px solid #168cff55;border-radius:10px;background:#04152a;color:#dff7ff;font:inherit;font-size:11px;cursor:pointer}.track-vote svg{width:18px;height:18px;fill:none;stroke:#20c8ff;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}.track-vote.dislike svg{stroke:#8db6dc}.track-vote:hover{background:#07376a}.track-stat-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid #164779;color:#c6deef;font-size:11px}.track-stat-row strong{white-space:nowrap;color:#8ce9ff}
+@media(max-width:520px){.job-photo-gallery{flex-direction:row;flex-wrap:wrap}.job-photo-gallery .job-photo{width:calc(33.333% - 5px);height:82px}.track-row{flex-wrap:wrap}.track-main{flex:1 1 70%;}.track-votes{margin-left:auto}.track-artist-photo{width:44px;height:44px;flex-basis:44px}}
