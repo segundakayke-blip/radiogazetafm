@@ -1,228 +1,194 @@
-const express = require('express');
-const http = require('http');
-const path = require('path');
-const crypto = require('crypto');
-const fs = require('fs');
-const WebSocket = require('ws');
+const $ = (id) => (typeof id === 'string' && (id.startsWith('.') || id.startsWith('#') || id.startsWith('[') || id.includes(' ') || id.includes(':'))) ? document.querySelector(id) : document.getElementById(id);
+let token = '';
+let ws;
+let currentState = {live:false,djName:'',program:'',mostPlayed:[]};
+let listenerCount=0, sampListenerCount=0, guestToken=''; let listenerPaused=true;
+let localFiles = {music:Array(5).fill(null),effect:Array(5).fill(null),commercial:Array(5).fill(null)};
+let micStream = null; let guestMonitorGain=null; let crossfadeTimer = null;
+let currentMusicSlotIndex = -1; let autoPlaylist = localStorage.getItem('gazetaAutoProgram') !== 'off'; let clientId = ''; let streamCtx = null; let streamDestination = null; let streamMicSource = null; let broadcaster = false; let listenerAudio = null; const peerConnections = new Map(); const audioSources = new WeakMap();
+let micGainNode=null, guestBroadcastGain=null, musicStreamGain=null, micSensorContext=null, micSensorAnalyser=null, micSensorData=null, duckingActive=false; let audioContext = null; let analyser = null; let meterTimer = null, outputMeterTimer = null, voiceMeterTimer = null; let listenerAudioContext=null; let outputAnalyser = null; let outputMeterData = null; let smoothedOutputLevel = 0; let soundActive = false; let currentAudio = null; let currentAudioType = null; let fadeTimer = null; let carouselIndex = 0; const audioMonitorGains = new WeakMap();
+function notify(message, kind='success'){let root=$('toastRoot');if(!root){root=document.createElement('div');root.id='toastRoot';root.className='toast-root';root.setAttribute('aria-live','polite');document.body.appendChild(root)}const el=document.createElement('div');el.className='toast '+(kind==='error'?'toast-error':'');el.textContent=message;root.appendChild(el);requestAnimationFrame(()=>el.classList.add('toast-show'));setTimeout(()=>{el.classList.remove('toast-show');setTimeout(()=>el.remove(),250)},3200)}
+function fadeOut(audio, duration=2500){return new Promise(resolve=>{if(!audio||audio.paused){if(audio)audio.pause();resolve();return}const start=audio.volume, began=performance.now();clearInterval(fadeTimer);fadeTimer=setInterval(()=>{const t=Math.min(1,(performance.now()-began)/duration);audio.volume=Math.max(0,start*(1-t));if(t>=1){clearInterval(fadeTimer);audio.pause();audio.currentTime=0;audio.volume=start;resolve()}},50)})}
+function musicNearEnd(){return !!(currentAudio&&currentAudioType==='music'&&!currentAudio.paused&&Number.isFinite(currentAudio.duration)&&currentAudio.duration-currentAudio.currentTime<=8)}
 
-const app = express();
-const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
-const PORT = process.env.PORT || 3000;
-const DJ_USERNAME = process.env.DJ_USERNAME || 'locutor';
-const DJ_PASSWORD = process.env.DJ_PASSWORD || 'TROQUE-ESTA-SENHA';
-const SAMP_API_KEY = process.env.SAMP_API_KEY || '';
-const guestSessions = new Map();
-const guestRequests = new Map();
-let sampListeners = 0;
+$('year').textContent = new Date().getFullYear();
+const eq = $('equalizer');
+for(let i=0;i<29;i++){const bar=document.createElement('i');bar.style.setProperty('--h',(18+Math.round(Math.random()*105))+'px');eq.appendChild(bar);}
+function connect(){
+ const proto=location.protocol==='https:'?'wss:':'ws:';
+ ws=new WebSocket(`${proto}//${location.host}`);
+ ws.onmessage=(ev)=>{let d;try{d=JSON.parse(ev.data)}catch{return}if(d.type==='hello'){clientId=d.clientId;ws.send(JSON.stringify({type:'role',role:'listener',name:$('chatName')?.value||'Ouvinte'}))}if(d.type==='counts'){listenerCount=d.listeners||0;sampListenerCount=d.sampListeners||0;renderCounts()}if(d.type==='listener-list')renderConnectedListeners(d.listeners||[]);if(d.type==='guest-error')notify(d.error||'Falha no acesso de convidado.','error');if(d.type==='guest-requests')loadGuestRequests();if(d.type==='rtc-join'&&broadcaster)createBroadcasterPeer(d.from);if(d.type==='rtc')handleRtc(d.from,d.payload);if(d.type==='state')renderState(d.state);if(d.type==='notice')notify(d.message||'A rádio foi atualizada.');if(d.type==='chat')addChat(d.message);if(d.type==='chat-error')notify(d.error||'Chat indisponível.','error')};
+ ws.onclose=()=>setTimeout(connect,2500);
+}
+connect();
+window.addEventListener('offline',()=>setNetworkStatus('Sem conexão de internet. O áudio pode ser interrompido.',true));
+window.addEventListener('online',()=>setNetworkStatus('Internet reconectada. Verificando áudio…',false));
+async function refresh(){try{const r=await fetch('/api/state');const d=await r.json();renderState(d.state);(d.messages||[]).forEach(addChat)}catch{}}
+refresh();
+function renderState(s){if(!s)return;currentState=s; if(Number.isFinite(s.listeners))listenerCount=s.listeners;if(Number.isFinite(s.sampListeners))sampListenerCount=s.sampListeners;renderCounts();const guestEl=$('guestName');if(guestEl){guestEl.textContent=s.guest?.active?'Convidado: '+s.guest.name:'';guestEl.classList.toggle('hidden',!s.guest?.active)}if($('guestStatus'))$('guestStatus').textContent=s.guest?.active?'Convidado conectado: '+s.guest.name:'Nenhum convidado conectado';$('liveBadge').className='status '+(s.live?'live':'offline');$('liveBadge').innerHTML=s.live?'<i></i> TRANSMISSÃO AO VIVO':'<i></i> AGUARDANDO LOCUTOR';$('programName').textContent=s.live?(s.program||'Programa ao vivo'):(s.reserve?.enabled?'PROGRAMAÇÃO AUTOMÁTICA':(s.program||'Aguardando locutor'));const autoBadge=$('automaticProgramBadge');if(autoBadge)autoBadge.classList.toggle('hidden',!!s.live||!s.reserve?.enabled||!s.reserve?.tracks?.length);$('djName').textContent=s.live?`No comando: ${s.djName||'Locutor'}`:(s.djName?`Próximo locutor: ${s.djName}`:'A programação será anunciada aqui.');$('currentTrack').textContent=s.currentTrack||'Nenhuma música informada';renderTracks(s.mostPlayed||[]);const chatStatus=$('chatLiveStatus');if(chatStatus){chatStatus.textContent=s.live?'● CHAT LIBERADO':'● CHAT BLOQUEADO';chatStatus.style.color=s.live?'#6ee7b7':'#fda4af';}const chatLocked=!s.live;$('chatName').disabled=chatLocked;$('chatText').disabled=chatLocked;$('chatForm').querySelector('button').disabled=chatLocked;$('chatText').placeholder=chatLocked?'Aguarde o início da transmissão...':'Escreva uma mensagem...';$('adminChatGate').textContent=s.live?'Transmissão ao vivo: chat liberado.':'O chat ficará disponível quando a transmissão começar.';if(s.settings){renderCarousel(s.settings.carousel||[]);if(s.settings.discordUrl)$('discordButton').dataset.url=s.settings.discordUrl;else delete $('discordButton').dataset.url;if($('discordEdit')&&document.activeElement!==$('discordEdit'))$('discordEdit').value=s.settings.discordUrl||'';}}
+function addChat(m){const box=$('chatMessages');if(box.querySelector('.empty'))box.innerHTML='';if([...box.children].some(el=>el.dataset.key===`${m.time}|${m.name}|${m.text}`))return;const div=document.createElement('div');div.className='chat-msg';div.dataset.key=`${m.time}|${m.name}|${m.text}`;const b=document.createElement('b');b.textContent=m.name;const span=document.createElement('span');span.textContent=': '+m.text;const time=document.createElement('time');time.textContent=new Date(m.time).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});div.append(b,span,time);box.appendChild(div);const admin=$('adminChatMessages');if(admin){const copy=div.cloneNode(true);admin.appendChild(copy);while(admin.children.length>100)admin.removeChild(admin.firstChild)}while(box.children.length>100)box.removeChild(box.firstChild);box.scrollTop=box.scrollHeight}
+$('adminChatForm').addEventListener('submit',e=>{e.preventDefault();if(!currentState.live){notify('Inicie a transmissão para conversar com os ouvintes.','error');return}const text=$('adminChatText').value.trim();if(!text)return;if(ws&&ws.readyState===1){ws.send(JSON.stringify({type:'chat',name:($('djInput').value.trim()||currentState.djName||'Locutor')+' (Locutor)',text}));$('adminChatText').value=''}else notify('Conectando ao chat. Tente novamente em instantes.','error')});
+$('chatForm').addEventListener('submit',e=>{e.preventDefault();if(!currentState.live){notify('O chat será liberado quando a transmissão começar.','error');return}const text=$('chatText').value.trim();if(!text)return;if(ws&&ws.readyState===1)ws.send(JSON.stringify({type:'chat',name:$('chatName').value.trim()||'Ouvinte',text}));else alert('Conectando ao chat. Tente novamente em instantes.');$('chatText').value=''});
+$('discordButton').addEventListener('click',()=>{const url=$('discordButton').dataset.url||'';if(!/^https:\/\//i.test(url)){alert('O link do Discord ainda não foi configurado.');return}localStorage.setItem('gazetaDiscord',url);window.open(url,'_blank','noopener,noreferrer')});
 
-app.use(express.json({ limit: '15mb' }));
-const JOBS_FILE = path.join(__dirname, 'jobs.json');
-function readJobs(){ try { const v=JSON.parse(fs.readFileSync(JOBS_FILE,'utf8')); return Array.isArray(v)?v:[]; } catch { return []; } }
-function writeJobs(jobs){ const tmp=JOBS_FILE+'.tmp'; fs.writeFileSync(tmp,JSON.stringify(jobs,null,2)); fs.renameSync(tmp,JOBS_FILE); }
-app.get('/api/jobs',(req,res)=>res.json({jobs:readJobs().sort((a,b)=>b.createdAt-a.createdAt)}));
-app.post('/api/jobs',(req,res)=>{
- const b=req.body||{}; const fields={company:100,cnpj:18,role:100,salary:60,location:120,contact:120,serverUrl:300,description:1200}; const job={};
- for(const [k,max] of Object.entries(fields)) job[k]=String(b[k]||'').trim().slice(0,max);
- if(!job.company||!job.cnpj||!job.role||!job.location||!job.contact) return res.status(400).json({error:'Preencha empresa, CNPJ, cargo, local e contato.'});
- if(job.serverUrl && !/^https?:\/\//i.test(job.serverUrl)) return res.status(400).json({error:'O link deve começar com http:// ou https://.'});
- job.photo=''; if(b.photo){ const m=String(b.photo).match(/^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$/); if(!m)return res.status(400).json({error:'Foto inválida. Use PNG, JPG ou WEBP.'}); const bytes=Buffer.from(m[2],'base64'); if(bytes.length>2*1024*1024)return res.status(413).json({error:'A foto deve ter até 2 MB.'}); job.photo=`data:${m[1]};base64,${m[2]}`; }
- job.id=crypto.randomBytes(8).toString('hex'); job.createdAt=Date.now(); const jobs=readJobs(); jobs.unshift(job); writeJobs(jobs); res.status(201).json({ok:true,job});
-});
-// O painel do convidado é servido diretamente como arquivo próprio para o modal;
-// não redirecionar para a página inicial nem depender de /convidado.
-app.get('/guest.html', (req, res) => res.sendFile(path.join(__dirname, 'public', 'guest.html')));
-// HTML sempre revalidado; assets estáticos podem ser mantidos em cache por 10 minutos.
-app.use(express.static(path.join(__dirname, 'public'), {
-  maxAge: '10m',
-  setHeaders(res, filePath) {
-    if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache');
-  }
-}));
-
-let radioState = {
-  live: false,
-  djName: '',
-  program: '',
-  startedAt: null,
-  currentTrack: '',
-  settings: { discordUrl: '', carousel: [
-    { title: 'GAZETA FM', subtitle: 'A trilha sonora da sua conexão.', imageUrl: '' },
-    { title: 'SINTONIZE', subtitle: 'Seu momento começa aqui.', imageUrl: '' },
-    { title: 'VOCÊ ESTÁ', subtitle: 'Na Gazeta FM Nacional.', imageUrl: '' }
-  ] },
-  mostPlayed: [{ title: 'Adicione uma música', artist: 'Painel do locutor' }],
-  guest: { username: '', passwordHash: '', name: '', active: false }
-};
-const STATE_FILE = path.join(__dirname, 'radio-state.json');
-const RESERVE_DIR = path.join(__dirname, 'reserve-audio');
-if (!fs.existsSync(RESERVE_DIR)) fs.mkdirSync(RESERVE_DIR, { recursive: true });
-radioState.reserve = radioState.reserve || { enabled: false, tracks: [], index: 0, startedAt: null };
-try {
-  if (fs.existsSync(STATE_FILE)) {
-    const saved = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
-    if (saved && typeof saved === 'object') {
-      radioState = {
-        ...radioState, ...saved,
-        settings: { ...radioState.settings, ...(saved.settings || {}) },
-        guest: { ...radioState.guest, ...(saved.guest || {}) },
-        reserve: saved.reserve || radioState.reserve,
-        mostPlayed: Array.isArray(saved.mostPlayed) ? saved.mostPlayed : radioState.mostPlayed
-      };
-    }
-  }
-} catch (e) { console.error('Não foi possível carregar o estado salvo:', e.message); }
-function persistState() {
-  const tmp = STATE_FILE + '.tmp';
-  try {
-    fs.writeFileSync(tmp, JSON.stringify(radioState), 'utf8');
-    fs.renameSync(tmp, STATE_FILE);
-  } catch (e) {
-    console.error('Não foi possível persistir o estado:', e.message);
-    try { if (fs.existsSync(tmp)) fs.unlinkSync(tmp); } catch (_) {}
-    const err = new Error('O servidor não conseguiu gravar as alterações. Verifique os logs/permissões do serviço no Render e tente novamente.');
-    err.status = 500;
-    throw err;
-  }
+$('playButton').addEventListener('click',async()=>{try{if(reserveAudio&&!currentState.live){if(!reserveAudio.paused){reserveAudio.pause();window.__gazetaListenerStarted=false;$('playButton').textContent='▶';$('playButton').title='Tocar rádio';return}window.__gazetaListenerStarted=true;await reserveAudio.play();$('playButton').textContent='Ⅱ';$('playButton').title='Pausar rádio';return}if(listenerAudioContext&&listenerAudio?.srcObject){if(!listenerPaused){await listenerAudioContext.suspend();listenerPaused=true;$('playButton').textContent='▶';$('playButton').title='Retomar rádio';return}await listenerAudioContext.resume();listenerPaused=false;$('playButton').textContent='Ⅱ';$('playButton').title='Pausar rádio';return}if(!currentState.live){if(typeof pollReserve==='function'){await pollReserve();if(reserveAudio){window.__gazetaListenerStarted=true;await reserveAudio.play();$('playButton').textContent='Ⅱ';$('playButton').title='Pausar rádio';return}}notify('A rádio ainda não está ao vivo.','error');return}if(!listenerAudioContext){listenerAudioContext=new (window.AudioContext||window.webkitAudioContext)();await listenerAudioContext.resume()}if(!listenerAudio){listenerAudio=new Audio();listenerAudio.autoplay=false;listenerAudio.controls=false;listenerAudio.style.display='none';document.body.appendChild(listenerAudio)}listenerPaused=false;$('playButton').textContent='…';$('playButton').title='Conectando à rádio';if(ws&&ws.readyState===1)ws.send(JSON.stringify({type:'rtc-join'}));else notify('Conectando ao servidor. Tente novamente em instantes.','error');}catch(e){notify('Não foi possível iniciar o player: '+e.message,'error')}});
+function ensureStreamMixer(){if(streamCtx)return;streamCtx=new (window.AudioContext||window.webkitAudioContext)();streamDestination=streamCtx.createMediaStreamDestination();outputAnalyser=streamCtx.createAnalyser();outputAnalyser.fftSize=256;outputMeterData=new Uint8Array(outputAnalyser.frequencyBinCount);const outputSource=streamCtx.createMediaStreamSource(streamDestination.stream);outputSource.connect(outputAnalyser);if(micStream)connectMicToStream(micStream);startOutputMeter();}
+function startOutputMeter(){if(!outputAnalyser||!outputMeterData)return;clearInterval(outputMeterTimer);outputMeterTimer=setInterval(()=>{if(!outputAnalyser)return;outputAnalyser.getByteTimeDomainData(outputMeterData);let sum=0;for(const v of outputMeterData){const x=(v-128)/128;sum+=x*x}const raw=Math.min(100,Math.sqrt(sum/outputMeterData.length)*260);smoothedOutputLevel=smoothedOutputLevel*.72+raw*.28;const level=smoothedOutputLevel;$('audioMeter').style.width=level+'%';const isEffect=currentAudio&&!currentAudio.paused&&['effect','commercial'].includes(currentAudioType);$('effectMeter').style.width=isEffect?level+'%':'0%';if(level>4)soundActive=true;else if(level<1.8)soundActive=false;$('sensorStatus').textContent=soundActive?'🔊 Áudio detectado na transmissão.':'⏳ Aguardando música, efeito ou voz.';},150);}
+function connectAudioElement(audio){try{ensureStreamMixer();if(audioSources.has(audio))return;const src=streamCtx.createMediaElementSource(audio);if(currentAudioType==='music'||audio.dataset.radioMusic==='1'){musicStreamGain=streamCtx.createGain();musicStreamGain.gain.value=Number($('musicVolume')?.value??100)/100;src.connect(musicStreamGain);musicStreamGain.connect(streamDestination)}else src.connect(streamDestination);const monitor=streamCtx.createGain();monitor.gain.value=$('musicReturn')?.checked?1:0;src.connect(monitor);monitor.connect(streamCtx.destination);audioMonitorGains.set(audio,monitor);audioSources.set(audio,src)}catch(e){console.warn('Não foi possível incluir áudio na transmissão:',e)}}
+function connectMicToStream(stream){try{ensureStreamMixer();if(streamMicSource){try{streamMicSource.disconnect()}catch{}}streamMicSource=streamCtx.createMediaStreamSource(stream);if(micGainNode){try{micGainNode.disconnect()}catch{}}micGainNode=streamCtx.createGain();micGainNode.gain.value=(Number($('micVolume')?.value??100)/100);streamMicSource.connect(micGainNode);micGainNode.connect(streamDestination);if($('voiceReturn')&&$('voiceReturn').checked)micGainNode.connect(streamCtx.destination)}catch(e){console.warn(e)}}
+async function createBroadcasterPeer(remoteId){try{ensureStreamMixer();await streamCtx.resume();const pc=new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'}]});peerConnections.set(remoteId,pc);pc.onconnectionstatechange=()=>{if(pc.connectionState==='connected')setNetworkStatus('Ao vivo • áudio conectado com ouvinte.',false);else if(['failed','disconnected'].includes(pc.connectionState))setNetworkStatus('Conexão instável com um ouvinte. Verifique a rede.',true)};streamDestination.stream.getTracks().forEach(t=>pc.addTrack(t,streamDestination.stream));pc.ontrack=e=>{if(e.streams&&e.streams[0]){try{const source=streamCtx.createMediaStreamSource(e.streams[0]);const mixGain=streamCtx.createGain();mixGain.gain.value=Number($('guestVolume')?.value??100)/100;guestBroadcastGain=mixGain;source.connect(mixGain);mixGain.connect(streamDestination);guestMonitorGain=streamCtx.createGain();guestMonitorGain.gain.value=$('guestMonitor')?.checked?1:0;source.connect(guestMonitorGain);guestMonitorGain.connect(streamCtx.destination);if($('guestMonitor'))$('guestMonitor').onchange=()=>{if(guestMonitorGain)guestMonitorGain.gain.setTargetAtTime($('guestMonitor').checked?1:0,streamCtx.currentTime,.03)};notify('Microfone do convidado conectado à transmissão.')}catch(err){console.warn('Áudio do convidado:',err)}}};pc.onicecandidate=e=>{if(e.candidate&&ws&&ws.readyState===1)ws.send(JSON.stringify({type:'rtc',to:remoteId,payload:{candidate:e.candidate}}))};const offer=await pc.createOffer();await pc.setLocalDescription(offer);ws.send(JSON.stringify({type:'rtc',to:remoteId,payload:{description:pc.localDescription}}))}catch(e){notify('Falha ao conectar um ouvinte: '+e.message,'error')}}
+async function handleRtc(from,payload){try{if(payload?.description?.type==='offer'){const pc=new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'}]});peerConnections.set(from,pc);pc.onconnectionstatechange=()=>{if(pc.connectionState==='connected'){setNetworkStatus('Áudio conectado à rádio.',false);$('playButton').textContent='Ⅱ';$('playButton').title='Pausar rádio'}else if(['failed','disconnected'].includes(pc.connectionState)){setNetworkStatus('Conexão de áudio instável. Tentando recuperar…',true);if(ws&&ws.readyState===1&&pc.connectionState==='failed')setTimeout(()=>ws.send(JSON.stringify({type:'rtc-join'})),1500)}};pc.ontrack=async e=>{const stream=e.streams?.[0];if(!stream)return;try{if(listenerAudio)listenerAudio.srcObject=stream;if(!listenerAudioContext)listenerAudioContext=new (window.AudioContext||window.webkitAudioContext)();await listenerAudioContext.resume();if(listenerAudioContext.state==='running'){if(listenerAudio&&listenerAudio.__sourceStream!==stream){try{listenerAudio.__sourceNode?.disconnect()}catch{}const source=listenerAudioContext.createMediaStreamSource(stream);source.connect(listenerAudioContext.destination);if(listenerAudio){listenerAudio.__sourceNode=source;listenerAudio.__sourceStream=stream}}listenerPaused=false;$('playButton').textContent='Ⅱ';$('playButton').title='Pausar rádio';setNetworkStatus('Áudio ao vivo conectado.',false)}else if(listenerAudio){listenerAudio.srcObject=stream;listenerAudio.play().then(()=>{listenerPaused=false;$('playButton').textContent='Ⅱ';setNetworkStatus('Áudio ao vivo conectado.',false)}).catch(()=>setNetworkStatus('Toque em Play para liberar o áudio no navegador.',true))}}catch(err){console.warn('Saída de áudio do ouvinte:',err);setNetworkStatus('Não foi possível iniciar o áudio neste navegador.',true)}};pc.onicecandidate=e=>{if(e.candidate&&ws&&ws.readyState===1)ws.send(JSON.stringify({type:'rtc',to:from,payload:{candidate:e.candidate}}))};await pc.setRemoteDescription(payload.description);const answer=await pc.createAnswer();await pc.setLocalDescription(answer);ws.send(JSON.stringify({type:'rtc',to:from,payload:{description:pc.localDescription}}))}else{const pc=peerConnections.get(from);if(!pc)return;if(payload?.description)await pc.setRemoteDescription(payload.description);if(payload?.candidate)await pc.addIceCandidate(payload.candidate)}}catch(e){console.warn('Sinalização de áudio:',e);setNetworkStatus('Falha na conexão de áudio: '+e.message,true)}}
+function setNetworkStatus(message,isError=false){const el=$('connectionStatus');if(el){el.textContent=message;el.classList.toggle('error',!!isError);el.classList.toggle('success',!isError)}if(isError)notify(message,'error')}
+$('openLogin').onclick=()=>{$('loginModal').classList.remove('hidden')};
+// O painel do convidado abre em uma janela sobre a página atual, sem navegação.
+const guestModal=$('guestModal'), guestFrame=$('guestFrame');
+const guestPanelMarkup="<!doctype html><html lang=\"pt-BR\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><meta name=\"theme-color\" content=\"#061326\"><title>Convidado | GAZETA FM</title><link rel=\"stylesheet\" href=\"/style.css?v=guestapproval22\"><style>body{min-height:100vh;display:grid;place-items:center;padding:20px;background:#0b2340}.guest-card{width:min(100%,460px);padding:28px;margin:auto}.guest-card{background:linear-gradient(145deg,#0b2340,#061326)!important;border-color:#168cff44!important}.guest-card h1{font-size:1.6rem}.guest-card input{width:100%;margin:8px 0 16px}.guest-status{padding:12px;border-radius:10px;background:#ffffff0c;margin:16px 0}.guest-status b{color:#6ee7b7}</style></head><body><main class=\"panel guest-card\"><p class=\"eyebrow\">GAZETA FM NACIONAL</p><h1>Painel do convidado</h1><p class=\"muted\">Entre com o usuário e a senha cadastrados pelo locutor. Sua entrada só será liberada depois que ele aceitar a solicitação.</p><form id=\"guestLogin\"><label class=\"field-label\">Usuário</label><input id=\"guestUser\" autocomplete=\"username\" required><label class=\"field-label\">Senha</label><input id=\"guestPass\" type=\"password\" autocomplete=\"current-password\" required><button class=\"btn full\" type=\"submit\">Entrar como convidado</button><p id=\"guestError\" class=\"error\"></p><p id=\"guestWaiting\" class=\"guest-status hidden\">Solicitação enviada. <b>Aguardando aprovação do locutor…</b></p></form><div id=\"guestPanel\" class=\"hidden\"><div class=\"guest-status\">Status: <b id=\"guestLiveStatus\">Conectando…</b></div><p id=\"guestName\"></p><p id=\"guestMicStatus\" class=\"tiny muted\">Microfone não iniciado.</p><p class=\"tiny muted\">Use fones de ouvido para evitar microfonia. A voz do convidado será enviada ao locutor e aos ouvintes.</p><div class=\"button-row\"><button id=\"guestMicToggle\" class=\"btn\">Desativar microfone</button><button id=\"guestReturnToggle\" class=\"btn outline\">Desativar retorno da rádio</button></div><button id=\"guestExit\" class=\"btn outline full\">Sair da sessão</button></div></main><script>\nlet guestToken='',guestWs,guestMic=null,guestAudio=null,guestPc=null,guestMicOn=true,guestReturnOn=true,guestJoined=false;const $=id=>document.getElementById(id);\nfunction send(data){if(guestWs&&guestWs.readyState===1)guestWs.send(JSON.stringify(data))}\nfunction connectGuest(){const proto=parent.location.protocol==='https:'?'wss:':'ws:';guestWs=new WebSocket(proto+'//'+parent.location.host);guestWs.onopen=()=>{if(guestToken){send({type:'guest-auth',token:guestToken});if(guestJoined)send({type:'rtc-join'})}};guestWs.onmessage=async e=>{let d;try{d=JSON.parse(e.data)}catch{return}if(d.type==='guest-error')$('guestError').textContent=d.error;if(d.type==='state'&&d.state?.guest?.active){$('guestLiveStatus').textContent='Conectado';$('guestName').textContent='Convidado: '+d.state.guest.name}if(d.type==='rtc')await handleGuestRtc(d.from,d.payload)};guestWs.onclose=()=>setTimeout(connectGuest,2000)}\nasync function handleGuestRtc(from,payload){try{if(!guestPc){guestPc=new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'}]});guestPc.onicecandidate=e=>{if(e.candidate)send({type:'rtc',to:from,payload:{candidate:e.candidate}})};guestPc.ontrack=e=>{if(!guestAudio){guestAudio=new Audio();guestAudio.autoplay=true;document.body.appendChild(guestAudio)}guestAudio.srcObject=e.streams[0];guestAudio.muted=!guestReturnOn;guestAudio.play().catch(()=>{$('guestLiveStatus').textContent='Conectado — toque em Ativar retorno para ouvir'})}}if(payload?.description?.type==='offer'){if(guestMic)guestMic.getTracks().forEach(t=>guestPc.addTrack(t,guestMic));await guestPc.setRemoteDescription(payload.description);const answer=await guestPc.createAnswer();await guestPc.setLocalDescription(answer);send({type:'rtc',to:from,payload:{description:guestPc.localDescription}})}else if(payload?.description){await guestPc.setRemoteDescription(payload.description)}else if(payload?.candidate){await guestPc.addIceCandidate(payload.candidate)}}catch(err){$('guestLiveStatus').textContent='Falha no áudio: '+err.message}}\nwindow.addEventListener('message',e=>{if(e.origin===location.origin&&e.data?.type==='gazeta-guest-close'&&window.parent!==window)window.parent.postMessage({type:'gazeta-guest-close'},location.origin)});\nlet guestRequestId='',guestApprovalTimer=null;connectGuest();$('guestLogin').onsubmit=async e=>{e.preventDefault();$('guestError').textContent='';try{const r=await fetch('/api/guest/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:$('guestUser').value,password:$('guestPass').value})});const d=await r.json();if(!r.ok)throw Error(d.error||'Falha no acesso');guestRequestId=d.requestId;$('guestWaiting').classList.remove('hidden');$('guestError').textContent='';$('guestUser').disabled=true;$('guestPass').disabled=true;$('guestLogin').querySelector('button[type=submit]').disabled=true;guestApprovalTimer=setInterval(checkGuestApproval,2000)}catch(err){$('guestError').textContent=err.message}};\nasync function checkGuestApproval(){if(!guestRequestId)return;try{const r=await fetch('/api/guest/status/'+encodeURIComponent(guestRequestId));const d=await r.json();if(d.status==='pending')return;clearInterval(guestApprovalTimer);if(!r.ok||d.status!=='approved')throw Error(d.error||'A solicitação não foi aprovada.');guestToken=d.token;$('guestWaiting').classList.add('hidden');$('guestLogin').classList.add('hidden');$('guestPanel').classList.remove('hidden');$('guestName').textContent='Você aparecerá como: '+d.name;try{guestMic=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});$('guestMicStatus').textContent='Microfone autorizado';}catch(err){$('guestMicStatus').textContent='Microfone bloqueado: '+err.message;throw Error('Permita o microfone para participar ao vivo.')}guestJoined=true;if(guestWs?.readyState===1){send({type:'guest-auth',token:guestToken});send({type:'rtc-join'})}else $('guestLiveStatus').textContent='Reconectando…'}catch(err){clearInterval(guestApprovalTimer);$('guestWaiting').classList.add('hidden');$('guestError').textContent=err.message;$('guestUser').disabled=false;$('guestPass').disabled=false;$('guestLogin').querySelector('button[type=submit]').disabled=false;guestRequestId=''}}\n$('guestMicToggle').onclick=()=>{guestMicOn=!guestMicOn;if(guestMic)guestMic.getAudioTracks().forEach(t=>t.enabled=guestMicOn);$('guestMicToggle').textContent=guestMicOn?'Desativar microfone':'Ativar microfone';$('guestMicToggle').classList.toggle('danger',guestMicOn)};\n$('guestReturnToggle').onclick=()=>{guestReturnOn=!guestReturnOn;if(guestAudio)guestAudio.muted=!guestReturnOn;$('guestReturnToggle').textContent=guestReturnOn?'Desativar retorno da rádio':'Ativar retorno da rádio';if(guestReturnOn&&guestAudio)guestAudio.play().catch(()=>{})};\n$('guestExit').onclick=async()=>{try{await fetch('/api/guest/logout',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:guestToken})})}catch{}if(guestMic)guestMic.getTracks().forEach(t=>t.stop());if(guestPc)guestPc.close();guestToken='';guestJoined=false;if(guestWs?.readyState===1)guestWs.close();if(window.parent!==window){window.parent.postMessage({type:'gazeta-guest-close'},location.origin)}else{location.href='/'} };\n\n</script></body></html>\n";
+$('openGuest')?.addEventListener('click',()=>{guestModal.classList.remove('hidden');if(!guestFrame.dataset.loaded){guestFrame.srcdoc=guestPanelMarkup;guestFrame.dataset.loaded='1';}});
+function closeGuestModal(){guestModal.classList.add('hidden')}
+$('closeGuest')?.addEventListener('click',closeGuestModal);
+guestModal?.addEventListener('click',e=>{if(e.target===guestModal)closeGuestModal()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&guestModal&&!guestModal.classList.contains('hidden'))closeGuestModal()});
+$('closeLogin').onclick=()=>{$('loginModal').classList.add('hidden')};
+$('loginModal').addEventListener('click',e=>{if(e.target===$('loginModal'))$('loginModal').classList.add('hidden')});
+$('loginForm').addEventListener('submit',async e=>{e.preventDefault();$('loginError').textContent='';try{const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:$('username').value,password:$('password').value})});const d=await r.json();if(!r.ok)throw Error(d.error||'Falha no login');token=d.token;if(ws&&ws.readyState===1)ws.send(JSON.stringify({type:'role',role:'dj'}));$('loginModal').classList.add('hidden');$('dashboard').classList.remove('hidden');notify('Você entrou no painel do locutor.');$('password').value='';initSlots();loadEditor();showDashboardTab('transmission');buildCarouselEditors(currentState.settings?.carousel||[]);$('discordEdit').value=currentState.settings?.discordUrl||'';$('programEdit').value=$('programInput').value;$('djEdit').value=$('djInput').value;}catch(err){$('loginError').textContent=err.message;notify('Não foi possível entrar: '+err.message,'error')}});
+$('logout').onclick=async()=>{try{const stateRes=await fetch('/api/state');const stateData=await stateRes.json();const reserve=stateData.state?.reserve;if(reserve?.tracks?.length){await api('/api/reserve/settings',{enabled:true,index:Number.isInteger(reserve.index)?reserve.index:0});await api('/api/broadcast',{live:false,djName:stateData.state?.djName||'',program:'PROGRAMAÇÃO AUTOMÁTICA'});}else if(currentState.live){await api('/api/broadcast',{live:false,djName:currentState.djName||'',program:currentState.program||''});}await fetch('/api/logout',{method:'POST',headers:{Authorization:'Bearer '+token}})}catch(e){notify('Não foi possível encerrar e ativar a reserva: '+(e.message||''),'error')}token='';closeMic();$('dashboard').classList.add('hidden')};
+async function api(url,body){
+ const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify(body)});
+ let d;try{d=await r.json()}catch{throw Error(r.status===413?'Os dados enviados ficaram grandes demais. Escolha imagens menores.':'O servidor retornou uma resposta inválida. Recarregue a página e tente novamente.')}
+ if(r.status===401){token='';throw Error('Sua sessão do painel expirou. Feche o painel, entre novamente e tente salvar.')}
+ if(!r.ok)throw Error(d.error||`Erro ao salvar (HTTP ${r.status})`);
+ if(d.state)renderState(d.state);
+ return d
 }
-let messages = [];
-const sessions = new Map();
-const socketIds = new Map();
-const socketsById = new Map();
-
-function safeEqual(a, b) {
-  const aa = Buffer.from(String(a || ''));
-  const bb = Buffer.from(String(b || ''));
-  return aa.length === bb.length && crypto.timingSafeEqual(aa, bb);
-}
-function broadcast(obj) {
-  if (obj && obj.type === 'state' && obj.state) { const safe = { ...obj.state, guest: { active: !!obj.state.guest?.active, name: obj.state.guest?.active ? obj.state.guest.name : '' }, listeners: [...wss.clients].filter(c => c.readyState === WebSocket.OPEN && c.radioRole === 'listener').length, sampListeners }; obj = { ...obj, state: safe }; }
-  const data = JSON.stringify(obj);
-  for (const client of wss.clients) {
-    if (client.readyState === WebSocket.OPEN) client.send(data);
-  }
-}
-function auth(req, res, next) {
-  const token = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
-  if (!token || !sessions.has(token)) return res.status(401).json({ error: 'Acesso não autorizado.' });
-  next();
-}
-app.post('/api/login', (req, res) => {
-  const { username, password } = req.body || {};
-  if (!safeEqual(username, DJ_USERNAME) || !safeEqual(password, DJ_PASSWORD)) {
-    return res.status(401).json({ error: 'Usuário ou senha incorretos.' });
-  }
-  const token = crypto.randomBytes(32).toString('hex');
-  sessions.set(token, Date.now());
-  res.json({ token, username: DJ_USERNAME });
-});
-app.post('/api/logout', auth, (req, res) => {
-  const token = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
-  sessions.delete(token);
-  res.json({ ok: true });
-});
-app.get('/api/state', (req, res) => res.json({ state: { ...radioState, guest: { active: !!radioState.guest?.active, name: radioState.guest?.active ? radioState.guest.name : '' }, listeners: [...wss.clients].filter(c => c.readyState === WebSocket.OPEN && c.radioRole === 'listener').length, sampListeners }, sampListeners, messages: messages.slice(-60) }));
-app.post('/api/guest/settings', auth, (req,res)=>{ const b=req.body||{}; const username=String(b.username||'').trim().slice(0,32); const password=String(b.password||'').slice(0,100); const name=String(b.name||username).trim().slice(0,32); if(username && (username.length<3 || password.length<4 || !name)) return res.status(400).json({error:'Use usuário com 3+ caracteres, senha com 4+ e informe o nome.'}); radioState.guest={username,passwordHash:username?crypto.createHash('sha256').update(password).digest('hex'):'',name,active:!!username}; persistState(); broadcast({type:'state',state:radioState}); res.json({ok:true,enabled:!!username}); });
-app.post('/api/guest/login',(req,res)=>{ const b=req.body||{}; const g=radioState.guest||{}; const hash=crypto.createHash('sha256').update(String(b.password||'')).digest('hex'); if(!g.active || !safeEqual(b.username,g.username) || !safeEqual(hash,g.passwordHash)) return res.status(401).json({error:'Usuário ou senha incorretos, ou acesso de convidado desativado.'}); for (const [id,r] of guestRequests) if(r.username===g.username && r.status==='pending') guestRequests.delete(id); const requestId=crypto.randomBytes(16).toString('hex'); guestRequests.set(requestId,{username:g.username,name:g.name,status:'pending',created:Date.now()}); broadcast({type:'guest-requests'}); res.json({requestId,status:'pending',message:'Solicitação enviada. Aguarde o locutor aceitar.'}); });
-app.get('/api/guest/status/:id',(req,res)=>{const r=guestRequests.get(String(req.params.id||''));if(!r)return res.status(404).json({error:'Solicitação não encontrada.'});if(r.status==='rejected'){guestRequests.delete(String(req.params.id));return res.status(403).json({status:'rejected',error:'O locutor recusou a solicitação.'});}if(r.status!=='approved')return res.json({status:'pending'});if(!r.token){r.token=crypto.randomBytes(32).toString('hex');guestSessions.set(r.token,{name:r.name,created:Date.now()});}res.json({status:'approved',token:r.token,name:r.name});});
-app.get('/api/guest/requests',auth,(req,res)=>res.json({requests:[...guestRequests.entries()].filter(([id,r])=>r.status==='pending').map(([id,r])=>({id,username:r.username,name:r.name,created:r.created}))}));
-app.post('/api/guest/requests/:id/decision',auth,(req,res)=>{const id=String(req.params.id||'');const r=guestRequests.get(id);if(!r||r.status!=='pending')return res.status(404).json({error:'Solicitação não encontrada ou já respondida.'});const approve=!!(req.body||{}).approve;r.status=approve?'approved':'rejected';broadcast({type:'guest-requests'});res.json({ok:true,status:r.status});});
-app.post('/api/guest/logout',(req,res)=>{guestSessions.delete(String((req.body||{}).token||''));res.json({ok:true});});
-app.get('/api/samp/listeners',(req,res)=>res.json({listeners:sampListeners}));
-app.post('/api/samp/listeners',(req,res)=>{ if(!SAMP_API_KEY || !safeEqual(req.headers['x-samp-key'],SAMP_API_KEY)) return res.status(401).json({error:'Chave SAMP inválida.'}); const n=Number((req.body||{}).listeners); if(!Number.isInteger(n)||n<0||n>100000) return res.status(400).json({error:'Contagem inválida.'}); sampListeners=n; broadcast({type:'counts',listeners:[...wss.clients].filter(c=>c.readyState===WebSocket.OPEN&&c.radioRole==='listener').length,sampListeners}); res.json({ok:true,listeners:sampListeners}); });
-app.get('/api/reserve/current', (req,res)=>{ const r=radioState.reserve||{enabled:false,tracks:[],index:0}; if(radioState.live||!r.enabled||!r.tracks?.length) return res.json({playing:false,live:radioState.live,automatic:false}); const index=((r.index||0)%r.tracks.length); const track=r.tracks[index]; res.json({playing:true,automatic:true,program:'PROGRAMAÇÃO AUTOMÁTICA',index,title:track.title,url:'/api/reserve/audio/'+encodeURIComponent(track.id),startedAt:r.startedAt||Date.now(),duration:track.duration||0}); });
-app.get('/api/reserve/audio/:id', (req,res)=>{ const track=(radioState.reserve?.tracks||[]).find(t=>t.id===req.params.id); if(!track) return res.status(404).end(); const file=path.join(RESERVE_DIR, path.basename(track.file)); if(!fs.existsSync(file)) return res.status(404).end(); res.setHeader('Content-Type',track.mime||'audio/mpeg'); res.setHeader('Accept-Ranges','bytes'); res.sendFile(file); });
-app.post('/api/reserve/upload', auth, (req,res)=>{ const b=req.body||{}; const tracks=radioState.reserve.tracks||[]; if(tracks.length>=20) return res.status(400).json({error:'Limite de 20 músicas na programação de reserva.'}); const match=String(b.data||'').match(/^data:(audio\/[a-zA-Z0-9.+-]+);base64,([\s\S]+)$/); if(!match) return res.status(400).json({error:'Arquivo de áudio inválido.'}); const bytes=Buffer.from(match[2],'base64'); if(bytes.length>10*1024*1024) return res.status(413).json({error:'Cada música deve ter até 10 MB.'}); const id=crypto.randomBytes(10).toString('hex'); const ext=({ 'audio/mpeg':'mp3','audio/mp3':'mp3','audio/wav':'wav','audio/ogg':'ogg','audio/mp4':'m4a','audio/aac':'aac','audio/webm':'webm' })[match[1]]||'audio'; const file=id+'.'+ext; fs.writeFileSync(path.join(RESERVE_DIR,file),bytes); tracks.push({id,title:String(b.title||'Música').slice(0,160),file,mime:match[1],duration:Number(b.duration)||0}); radioState.reserve.tracks=tracks; persistState(); broadcast({type:'state',state:radioState}); res.json({tracks:tracks.map(t=>({id:t.id,title:t.title,duration:t.duration})),state:radioState}); });
-app.post('/api/reserve/remove', auth, (req,res)=>{ const id=String((req.body||{}).id||''); const r=radioState.reserve; const t=r.tracks.find(x=>x.id===id); if(t){try{fs.unlinkSync(path.join(RESERVE_DIR,path.basename(t.file)))}catch{} r.tracks=r.tracks.filter(x=>x.id!==id); r.index=Math.max(0,Math.min(r.index,r.tracks.length-1)); persistState(); broadcast({type:'state',state:radioState});} res.json({state:radioState,tracks:r.tracks.map(x=>({id:x.id,title:x.title}))}); });
-app.post('/api/reserve/settings', auth, (req,res)=>{ const b=req.body||{}; radioState.reserve.enabled=Boolean(b.enabled); if(Number.isInteger(b.index)) radioState.reserve.index=Math.max(0,Math.min(b.index,Math.max(0,radioState.reserve.tracks.length-1))); radioState.reserve.startedAt=Date.now(); if(radioState.reserve.enabled) radioState.live=false; persistState(); broadcast({type:'state',state:radioState}); broadcast({type:'notice',message:radioState.reserve.enabled?'Programação automática de reserva ativada.':'Programação automática de reserva desativada.'}); res.json({state:radioState}); });
-app.post('/api/reserve/next', (req,res)=>{ const r=radioState.reserve; if(radioState.live||!r.enabled||!r.tracks.length) return res.json({ok:false}); const expected=Number((req.body||{}).expectedIndex); if(Number.isInteger(expected)&&expected!==r.index) return res.json({ok:false,index:r.index,startedAt:r.startedAt}); r.index=(r.index+1)%r.tracks.length; r.startedAt=Date.now(); persistState(); broadcast({type:'state',state:radioState}); res.json({ok:true,index:r.index,startedAt:r.startedAt,track:r.tracks[r.index]}); });
-app.post('/api/broadcast', auth, (req, res) => {
-  const { live, djName, program } = req.body || {};
-  const previousDj = radioState.djName; const previousProgram = radioState.program;
-  radioState = {
-    ...radioState,
-    live: Boolean(live),
-    djName: typeof djName === 'string' ? djName.slice(0, 80) : radioState.djName,
-    program: typeof program === 'string' ? program.slice(0, 100) : radioState.program,
-    startedAt: live ? (radioState.live ? radioState.startedAt : Date.now()) : null
+$('startLive').onclick=async()=>{const name=$('djInput').value.trim();const program=$('programInput').value.trim();if(!name||!program){notify('Preencha o nome do locutor e o programa atual.','error');return}try{ensureStreamMixer();if(streamCtx)await streamCtx.resume();if(!micStream){try{micStream=await navigator.mediaDevices.getUserMedia({audio:true});connectMicToStream(micStream);$('localMicAudio').srcObject=micStream;$('localMicAudio').classList.remove('hidden');$('micClose').dataset.muted='0';$('micClose').textContent='Mutar microfone';$('micStatus').textContent='Microfone conectado à transmissão.';initMeters(micStream)}catch(micError){notify('Transmissão iniciada sem microfone: permita o acesso ao microfone para enviar sua voz.','error')}}const d=await api('/api/broadcast',{live:true,djName:name,program});renderState(d.state);broadcaster=true;setNetworkStatus('AO VIVO • aguardando conexão dos ouvintes.',false);notify('Transmissão ativada. Deixe esta página aberta; os ouvintes devem tocar ▶ para conectar o áudio.')}catch(e){broadcaster=false;notify(e.message,'error')}};
+$('endLive').onclick=async()=>{broadcaster=false;setNetworkStatus('Transmissão encerrada.',false);for(const pc of peerConnections.values())pc.close();peerConnections.clear();try{const d=await api('/api/broadcast',{live:false});renderState(d.state);shutdownMic();if(currentAudio){try{currentAudio.pause();currentAudio.currentTime=0}catch{}currentAudio=null;currentAudioType=null}if(crossfadeTimer){clearInterval(crossfadeTimer);crossfadeTimer=null}if($('audioMeter'))$('audioMeter').style.width='0%';if($('voiceMeter'))$('voiceMeter').style.width='0%';if($('effectMeter'))$('effectMeter').style.width='0%';if($('micStatus'))$('micStatus').textContent='Microfone fechado.';if($('sensorStatus'))$('sensorStatus').textContent='Transmissão encerrada; sensor em espera.';duckingActive=false;musicStreamGain=null;notify('Transmissão encerrada. Painel e microfone voltaram ao estado inicial.')}catch(e){alert(e.message)}};
+$('micOpen').onclick=async()=>{try{micStream=await navigator.mediaDevices.getUserMedia({audio:true});connectMicToStream(micStream);$('localMicAudio').srcObject=micStream;$('localMicAudio').classList.remove('hidden');$('micStatus').textContent='Microfone aberto neste navegador (prévia local).';}catch(e){$('micStatus').textContent='Não foi possível acessar o microfone: '+e.message}};
+function shutdownMic(){if(streamMicSource){try{streamMicSource.disconnect()}catch{}streamMicSource=null}if(micStream){micStream.getTracks().forEach(t=>t.stop());micStream=null}if($('localMicAudio')){$('localMicAudio').srcObject=null;$('localMicAudio').classList.add('hidden')}if($('micStatus'))$('micStatus').textContent='Microfone fechado.'}
+function closeMic(){if(micStream){micStream.getAudioTracks().forEach(t=>t.enabled=false);$('micStatus').textContent='Microfone mutado; transmissão continua ativa.';$('micClose').textContent='Ativar microfone';$('micClose').dataset.muted='1';return} $('micStatus').textContent='Microfone fechado.'}
+$('micClose').onclick=()=>{if(micStream){const muted=$('micClose').dataset.muted==='1';micStream.getAudioTracks().forEach(t=>t.enabled=muted);$('micClose').dataset.muted=muted?'0':'1';$('micClose').textContent=muted?'Mutar microfone':'Ativar microfone';$('micStatus').textContent=muted?'Microfone ativo; transmissão continua.':'Microfone mutado; transmissão continua ativa.';return}notify('Abra o microfone primeiro.','error')};
+function initSlots(){
+ const groups=[['music','musicSlots','Tocar'],['effect','effectSlots','Disparar'],['commercial','commercialSlots','Disparar']];
+ for(const [type,id,action] of groups){const root=$(id);root.innerHTML='';for(let i=0;i<5;i++){
+  const wrap=document.createElement('div');wrap.className='slot';const input=document.createElement('input');input.type='file';input.accept='audio/*';input.setAttribute('aria-label',`${type} ${i+1}`);input.className='slot-file-hidden';const pick=document.createElement('button');pick.type='button';pick.className='slot-pick';pick.textContent='＋ Adicionar arquivo';pick.onclick=()=>input.click();
+  const go=document.createElement('button');go.className='btn';go.textContent=(type==='music'?'▶ ':'🔊 ')+action;const remove=document.createElement('button');remove.className='btn remove';remove.textContent='🗑 Remover';const name=document.createElement('div');name.className='slot-name';name.textContent='Nenhum arquivo selecionado';
+  input.onchange=()=>{const old=localFiles[type][i];if(old)URL.revokeObjectURL(old.url);const f=input.files[0];localFiles[type][i]=f?{file:f,url:URL.createObjectURL(f)}:null;name.textContent=f?f.name:'Nenhum arquivo selecionado';pick.textContent=f?'✓ '+f.name:'＋ Adicionar arquivo';if(f)notify((type==='music'?'Música':type==='effect'?'Efeito':'Vinheta/anúncio')+' adicionado com sucesso: '+f.name)};
+  go.onclick=async()=>{if(!currentState.live||!broadcaster){notify('Inicie a transmissão antes de tocar músicas, efeitos ou vinhetas.','error');return}const item=localFiles[type][i];if(!item){notify('Selecione um arquivo de áudio primeiro.','error');return}
+   if(type!=='music'&&currentAudio&&currentAudioType==='music'&&!currentAudio.paused&&!musicNearEnd()){const remaining=Number.isFinite(currentAudio.duration)?Math.ceil(currentAudio.duration-currentAudio.currentTime):null;notify(remaining!==null?`Aguarde o final da música. Faltam cerca de ${remaining} segundos para disparar.`:'Aguarde o final da música para disparar a vinheta ou o efeito.','error');return}
+   if(type==='music'){
+    const previous=currentAudio&&currentAudioType==='music'&&!currentAudio.paused?currentAudio:null;
+    const next=new Audio(item.url);next.dataset.radioMusic='1';connectAudioElement(next);next.preload='auto';next.volume=previous?0:1;
+    try{await next.play()}catch(e){notify('O navegador bloqueou o áudio. Toque novamente.','error');return}
+    currentAudio=next;currentAudioType='music';currentMusicSlotIndex=i;autoPlaylist=true;next.onended=()=>{if(currentAudio===next){currentAudio=null;currentAudioType=null}if(autoPlaylist){let nextIndex=-1;for(let step=1;step<=localFiles.music.length;step++){const candidate=(currentMusicSlotIndex+step)%localFiles.music.length;if(localFiles.music[candidate]){nextIndex=candidate;break}}if(nextIndex>=0){const buttons=$('musicSlots').querySelectorAll('.slot button.btn');const go=buttons[nextIndex*2];if(go)setTimeout(()=>go.click(),150);else notify('A música terminou. Toque na próxima faixa.')}else notify('A programação automática terminou: não há outras músicas cadastradas.')}else notify('A música terminou.')};
+    if(previous){if(crossfadeTimer)clearInterval(crossfadeTimer);const start=performance.now(),duration=4000,oldVolume=previous.volume;crossfadeTimer=setInterval(()=>{const linear=Math.min(1,(performance.now()-start)/duration);const t=linear*linear*(3-2*linear);previous.volume=Math.max(0,oldVolume*(1-t));next.volume=Math.min(1,t);if(linear>=1){clearInterval(crossfadeTimer);crossfadeTimer=null;previous.pause();previous.currentTime=0;previous.volume=oldVolume;next.volume=1}},40);notify('Transição suave ativada: a música anterior baixa enquanto a próxima aumenta.')}else notify('Tocando agora: '+item.file.name);
+    try{await api('/api/current-track',{title:item.file.name.replace(/\.[^.]+$/,'')})}catch(e){notify('A música está tocando, mas não foi possível atualizar o título no site.','error')}
+   }else{
+    const audio=new Audio(item.url);connectAudioElement(audio);try{await audio.play();currentAudio=audio;currentAudioType=type;audio.onended=()=>{if(currentAudio===audio){currentAudio=null;currentAudioType=null}};notify((type==='effect'?'Efeito':'Vinheta/anúncio')+' disparado: '+item.file.name)}catch(e){notify('O navegador bloqueou o áudio. Toque novamente.','error')}
+   }
   };
-  if (live && radioState.reserve) radioState.reserve.enabled = false;
-  persistState();
-  broadcast({ type: 'state', state: radioState });
-  if (typeof djName === 'string' && typeof program === 'string' && (previousDj !== radioState.djName || previousProgram !== radioState.program)) broadcast({ type: 'notice', message: `Programação atualizada: ${radioState.program} — ${radioState.djName}.` });
-  res.json({ state: radioState });
-});
-app.post('/api/settings', auth, (req, res) => {
-  const body = req.body || {};
-  let discordChanged = false;
-  if (typeof body.discordUrl === 'string') {
-    const url = body.discordUrl.trim();
-    if (url && (!/^https:\/\//i.test(url) || url.length > 500)) {
-      return res.status(400).json({ error: 'O link do Discord precisa começar com https:// e ter até 500 caracteres.' });
-    }
-    discordChanged = url !== radioState.settings.discordUrl;
-    radioState.settings.discordUrl = url;
+  remove.onclick=()=>{const item=localFiles[type][i];if(currentAudio&&currentAudioType===type&&((type==='music'&&currentMusicSlotIndex===i)||currentAudio.src===item?.url)){autoPlaylist=false;if(crossfadeTimer){clearInterval(crossfadeTimer);crossfadeTimer=null}try{currentAudio.pause();currentAudio.currentTime=0}catch{}currentAudio=null;currentAudioType=null;if(type==='music'){currentMusicSlotIndex=-1;api('/api/current-track',{title:''}).then(d=>renderState(d.state)).catch(()=>{});}notify('Áudio removido e reprodução interrompida.')}if(item)URL.revokeObjectURL(item.url);localFiles[type][i]=null;input.value='';name.textContent='Nenhum arquivo selecionado';pick.textContent='＋ Adicionar arquivo';if(!currentAudio)notify('Arquivo removido.');};wrap.append(input,pick,go,remove,name);root.appendChild(wrap)
+ }}
+}
+function loadEditor(){ if(!$('tracksEditor'))return; $('tracksEditor').value=(currentState.mostPlayed||[]).filter(x=>x.title&&x.title!=='Adicione uma música').map(x=>x.title+(x.artist?' — '+x.artist:'')).join('\n');}
+function renderTracks(tracks){const root=$('topTracks');if(!root)return;root.innerHTML='';const clean=tracks.filter(t=>t.title);if(!clean.length){root.innerHTML='<div class="track-row"><span class="rank">01</span><div><b>Nenhuma música cadastrada</b><p>O locutor pode adicionar pelo painel.</p></div></div>';return}clean.forEach((t,i)=>{const row=document.createElement('div');row.className='track-row';const rank=document.createElement('span');rank.className='rank';rank.textContent=String(i+1).padStart(2,'0');const body=document.createElement('div');const title=document.createElement('b');title.textContent=t.title;const artist=document.createElement('p');artist.textContent=t.artist||'GAZETA FM NACIONAL';body.append(title,artist);row.append(rank,body);root.appendChild(row)})}
+$('saveTracks').onclick=async()=>{const songs=$('tracksEditor').value.split('\n').map(line=>{const parts=line.split('—');return {title:(parts[0]||'').trim(),artist:(parts.slice(1).join('—')||'').trim()}}).filter(x=>x.title);try{const d=await api('/api/songs',{songs});renderState(d.state);notify('Lista de mais tocadas atualizada.')}catch(e){alert(e.message)}};
+
+$('moreMenu').onclick=()=> $('moreDropdown').classList.toggle('hidden');
+function showDashboardTab(name){
+ document.querySelectorAll('.dash-tab').forEach(el=>el.classList.toggle('hidden',el.dataset.tab!==name));
+ $('moreDropdown').classList.add('hidden');
+}
+document.querySelectorAll('[data-edit]').forEach(b=>b.addEventListener('click',()=>showDashboardTab(b.dataset.edit))); 
+
+document.addEventListener('click',e=>{if(!e.target.closest('.menu-wrap'))$('moreDropdown').classList.add('hidden')});
+$('saveDiscord').onclick=async()=>{const url=$('discordEdit').value.trim();if(url&&!/^https:\/\//i.test(url)){notify('Informe um link seguro do Discord começando com https://.','error');return}try{await api('/api/settings',{discordUrl:url});notify('Link do Discord atualizado.')}catch(e){notify(e.message,'error')}};
+$('saveProgram').onclick=async()=>{const djName=$('djEdit').value.trim()||$('djInput').value.trim();const program=$('programEdit').value.trim()||$('programInput').value.trim();$('djInput').value=djName;$('programInput').value=program;try{await api('/api/broadcast',{live:currentState.live,djName,program});notify('Programação atualizada.')}catch(e){notify(e.message,'error')}};
+function buildCarouselEditors(slides=[]){const root=$('carouselEditors');root.innerHTML='';for(let i=0;i<3;i++){const s=slides[i]||{title:'',subtitle:'',imageUrl:''};const wrap=document.createElement('div');wrap.className='carousel-editor';wrap.innerHTML=`<h4>Slide ${i+1}</h4><label class="field-label">Título</label><input data-slide-title="${i}" maxlength="100"><label class="field-label">Frase</label><input data-slide-sub="${i}" maxlength="200"><label class="field-label">Imagem do banner</label><input data-slide-file="${i}" type="file" accept="image/*"><small class="tiny muted" data-slide-file-name="${i}">${s.imageUrl?'Imagem atual salva':'Nenhuma imagem selecionada'}</small><img data-slide-preview="${i}" class="carousel-preview ${s.imageUrl?'':'hidden'}" alt="Prévia do banner ${i+1}">`;root.appendChild(wrap);wrap.querySelector('[data-slide-title]').value=s.title||'';wrap.querySelector('[data-slide-sub]').value=s.subtitle||'';const preview=wrap.querySelector('[data-slide-preview]');if(s.imageUrl)preview.src=s.imageUrl;wrap.querySelector(`[data-slide-file="${i}"]`).onchange=e=>{const f=e.target.files[0];if(!f)return;if(!f.type.startsWith('image/')){notify('Escolha um arquivo de imagem.','error');e.target.value='';return}if(f.size>2*1024*1024){notify('A imagem deve ter no máximo 2 MB.','error');e.target.value='';return}wrap.querySelector(`[data-slide-file-name="${i}"]`).textContent=f.name;const url=URL.createObjectURL(f);preview.src=url;preview.classList.remove('hidden')}}}
+function renderCarousel(slides){if(!slides||!slides.length)return;const slide=slides[carouselIndex%slides.length];if(!slide)return;const hero=$('.hero');const h=$('.hero h1');h.innerHTML='';const a=document.createElement('span');a.textContent=slide.title||'GAZETA FM';const b=document.createElement('span');b.textContent='NACIONAL';h.append(a,b);$('.hero-sub').textContent=slide.subtitle||'A trilha sonora da sua conexão.';const image=String(slide.imageUrl||'');const hasImage=image.startsWith('data:image/')||image.startsWith('https://')||image.startsWith('http://');hero.classList.toggle('has-custom-image',hasImage);if(hasImage){hero.style.backgroundImage=`url("${image.replace(/"/g,'')}")`;hero.style.backgroundSize='cover';hero.style.backgroundPosition='center';hero.style.backgroundRepeat='no-repeat';}else{hero.style.backgroundImage='linear-gradient(110deg,#031a3a,#063a7b 50%,#0757a9)';hero.style.backgroundSize='';hero.style.backgroundPosition='';}const art=$('.hero-art');art.style.backgroundImage='';}
+function fileAsDataUrl(file){
+ return new Promise((resolve,reject)=>{
+  const reader=new FileReader();
+  reader.onerror=()=>reject(new Error('Não foi possível ler a imagem.'));
+  reader.onload=()=>{
+   const img=new Image();
+   img.onerror=()=>reject(new Error('A imagem escolhida não pôde ser aberta.'));
+   img.onload=()=>{
+    const maxW=1400,maxH=900,scale=Math.min(1,maxW/img.width,maxH/img.height);
+    const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(img.width*scale));canvas.height=Math.max(1,Math.round(img.height*scale));
+    const ctx=canvas.getContext('2d');ctx.fillStyle='#241039';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.drawImage(img,0,0,canvas.width,canvas.height);
+    let quality=.82,data=canvas.toDataURL('image/jpeg',quality);
+    while(data.length>1200000&&quality>.45){quality-=.08;data=canvas.toDataURL('image/jpeg',quality)}
+    if(data.length>1800000) return reject(new Error('A imagem ficou muito grande mesmo após a otimização. Escolha outra imagem.'));
+    resolve(data);
+   };
+   img.src=String(reader.result);
+  };
+  reader.readAsDataURL(file);
+ });
+}
+$('saveCarousel').onclick=async()=>{const carousel=[];try{for(let i=0;i<3;i++){const existing=currentState.settings?.carousel?.[i]||{};const file=$(`[data-slide-file="${i}"]`)?.files?.[0];const imageUrl=file?await fileAsDataUrl(file):(existing.imageUrl||'');carousel.push({title:$(`[data-slide-title="${i}"]`)?.value||'',subtitle:$(`[data-slide-sub="${i}"]`)?.value||'',imageUrl})}const d=await api('/api/settings',{carousel});const saved=d.state?.settings?.carousel||[];const hasImage=carousel.some((slide,i)=>slide.imageUrl&&saved[i]?.imageUrl);if(carousel.some(slide=>slide.imageUrl)&&!hasImage)throw Error('O servidor respondeu, mas não confirmou a imagem salva. Confira os logs do Render.');renderState(d.state);notify(hasImage?'Carrossel salvo e imagem confirmada pelo servidor.':'Carrossel salvo. Nenhuma imagem foi selecionada.')}catch(e){notify(e.message||'Não foi possível salvar o carrossel.','error')}};
+function initMeters(stream){try{ensureStreamMixer();if(micSensorContext){try{micSensorContext.close()}catch{}}micSensorContext=new (window.AudioContext||window.webkitAudioContext)();const source=micSensorContext.createMediaStreamSource(stream);micSensorAnalyser=micSensorContext.createAnalyser();micSensorAnalyser.fftSize=512;source.connect(micSensorAnalyser);micSensorData=new Uint8Array(micSensorAnalyser.frequencyBinCount);clearInterval(voiceMeterTimer);voiceMeterTimer=setInterval(()=>{if(!micSensorAnalyser)return;micSensorAnalyser.getByteTimeDomainData(micSensorData);let sum=0;for(const v of micSensorData){const x=(v-128)/128;sum+=x*x}const level=Math.min(100,Math.sqrt(sum/micSensorData.length)*260);$('voiceMeter').style.width=level+'%';const speaking=level>4; if(musicStreamGain&&streamCtx){const target=speaking?Math.min(.25,Number($('musicVolume')?.value??100)/100*.25):Number($('musicVolume')?.value??100)/100;musicStreamGain.gain.setTargetAtTime(target,streamCtx.currentTime,.18);if(speaking!==duckingActive){duckingActive=speaking;$('sensorStatus').textContent=speaking?'Sensor detectou voz: música abaixada automaticamente.':'Voz não detectada: música voltou ao volume normal.'}}else $('sensorStatus').textContent=speaking?'Som detectado no microfone.':(currentAudio&&!currentAudio.paused?'Áudio tocando na transmissão.':'Microfone ativo; aguardando som.');},100)}catch(e){console.warn('Sensor de microfone indisponível',e)}}
+$('micOpen').onclick=async()=>{try{micStream=await navigator.mediaDevices.getUserMedia({audio:true});connectMicToStream(micStream);$('localMicAudio').srcObject=micStream;$('localMicAudio').classList.remove('hidden');$('micClose').dataset.muted='0';$('micClose').textContent='Mutar microfone';$('micStatus').textContent='Microfone aberto neste navegador.';initMeters(micStream);$('localMicAudio').muted=!$('voiceReturn').checked}catch(e){$('micStatus').textContent='Não foi possível acessar o microfone: '+e.message}};
+$('voiceReturn').onchange=()=>{$('localMicAudio').muted=!$('voiceReturn').checked};$('musicReturn').onchange=()=>{for(const audio of [currentAudio])if(audio){const gain=audioMonitorGains.get(audio);if(gain)gain.gain.value=$('musicReturn').checked?1:0}};
+const autoProgramToggle=$('autoProgramToggle');if(autoProgramToggle){autoProgramToggle.checked=autoPlaylist;autoProgramToggle.onchange=()=>{autoPlaylist=autoProgramToggle.checked;localStorage.setItem('gazetaAutoProgram',autoPlaylist?'on':'off');notify(autoPlaylist?'Programação automática ativada.':'Programação automática desativada.');if(!autoPlaylist&&currentAudioType==='music'&&currentAudio&&!currentAudio.paused){/* A faixa atual termina, mas não inicia outra automaticamente. */}};}
+
+const slides=[['GAZETA FM','NACIONAL','A trilha sonora da sua conexão.'],['SINTONIZE','SEU MOMENTO','Música, companhia e informação.'],['VOCÊ ESTÁ','NA GAZETA','Sua rádio, sua comunidade.']];
+document.querySelectorAll('.dot').forEach(dot=>dot.onclick=()=>{carouselIndex=Number(dot.dataset.slide);document.querySelectorAll('.dot').forEach(d=>d.classList.toggle('active',d===dot));renderCarousel(currentState.settings?.carousel||[])});setInterval(()=>{const ss=currentState.settings?.carousel||[];if(ss.length>1){carouselIndex=(carouselIndex+1)%Math.min(3,ss.length);document.querySelectorAll('.dot').forEach((d,i)=>d.classList.toggle('active',i===carouselIndex));renderCarousel(ss)}},5000);
+
+function renderCounts(){const el=$('listenerCount');if(el)el.textContent='👥 '+listenerCount+' ouvinte'+(listenerCount===1?'':'s');if($('siteCountAdmin'))$('siteCountAdmin').textContent=listenerCount;if($('sampCountAdmin'))$('sampCountAdmin').textContent=sampListenerCount;}
+function updateSampLink(){const el=$('sampLink');if(el)el.value=location.origin+'/samp-radio';}
+updateSampLink();
+$('saveGuest')?.addEventListener('click',async()=>{try{const username=$('guestUsername').value.trim(),password=$('guestPassword').value,name=username;if(!username||!password){notify('Preencha usuário e senha para criar o acesso.','error');return}const r=await fetch('/api/guest/settings',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify({username,password,name})});const d=await r.json();if(!r.ok)throw Error(d.error||'Não foi possível salvar');$('guestPassword').value='';notify('Acesso do convidado salvo. Ele pode entrar pelo botão Convidado no topo e precisará da sua aprovação.')}catch(e){notify(e.message,'error')}});
+$('disableGuest')?.addEventListener('click',async()=>{try{const r=await fetch('/api/guest/settings',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify({username:'',password:'',name:''})});const d=await r.json();if(!r.ok)throw Error(d.error||'Falha ao desativar');notify('Acesso do convidado desativado.')}catch(e){notify(e.message,'error')}});
+async function loadGuestRequests(){const root=$('guestRequests');if(!root||!token)return;try{const r=await fetch('/api/guest/requests',{headers:{Authorization:'Bearer '+token}});if(!r.ok)return;const d=await r.json();root.innerHTML='';if(!d.requests?.length){root.innerHTML='<p class="tiny muted">Nenhuma solicitação aguardando aprovação.</p>';return}d.requests.forEach(req=>{const row=document.createElement('div');row.className='guest-request-row';const label=document.createElement('span');label.textContent=req.name+' ('+req.username+') quer entrar';const accept=document.createElement('button');accept.className='btn';accept.textContent='Aceitar';accept.onclick=()=>decideGuest(req.id,true);const reject=document.createElement('button');reject.className='btn outline';reject.textContent='Recusar';reject.onclick=()=>decideGuest(req.id,false);const actions=document.createElement('div');actions.className='button-row';actions.append(accept,reject);row.append(label,actions);root.append(row)})}catch{}}
+async function decideGuest(id,approve){try{const r=await fetch('/api/guest/requests/'+encodeURIComponent(id)+'/decision',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify({approve})});const d=await r.json();if(!r.ok)throw Error(d.error||'Não foi possível responder');notify(approve?'Convidado aceito.':'Solicitação recusada.');loadGuestRequests()}catch(e){notify(e.message,'error')}}
+setInterval(loadGuestRequests,3000);loadGuestRequests();
+function renderConnectedListeners(names){const root=$('connectedListeners');if(!root)return;root.innerHTML='';if(!names.length){root.innerHTML='<p class="tiny muted">Nenhum ouvinte conectado.</p>';return}names.forEach(name=>{const row=document.createElement('div');row.className='connected-listener';row.textContent='● '+name;root.appendChild(row)})}
+$('musicVolume')?.addEventListener('input',e=>{const v=Number(e.target.value)/100;if(musicStreamGain&&streamCtx)musicStreamGain.gain.setTargetAtTime(duckingActive?Math.min(.25,v):v,streamCtx.currentTime,.03);if(currentAudio&&currentAudioType==='music'&&!musicStreamGain)currentAudio.volume=v});
+$('micVolume')?.addEventListener('input',e=>{if(micGainNode&&streamCtx)micGainNode.gain.setTargetAtTime(Number(e.target.value)/100,streamCtx.currentTime,.03)});
+$('guestVolume')?.addEventListener('input',e=>{if(guestBroadcastGain&&streamCtx)guestBroadcastGain.gain.setTargetAtTime(Number(e.target.value)/100,streamCtx.currentTime,.03)});
+$('chatName')?.addEventListener('change',()=>{if(ws&&ws.readyState===1)ws.send(JSON.stringify({type:'role',role:'listener',name:$('chatName').value||'Ouvinte'}))});
+$('copySampLink')?.addEventListener('click',()=>navigator.clipboard.writeText(location.origin+'/samp-radio').then(()=>notify('Link Ouvintes SAMP copiado.')).catch(()=>notify('Não foi possível copiar o link.','error')));
+setInterval(async()=>{try{const r=await fetch('/api/state');const d=await r.json();if(d.state?.listeners!==undefined)listenerCount=d.state.listeners;if((d.sampListeners??d.state?.sampListeners)!==undefined)sampListenerCount=d.sampListeners??d.state.sampListeners;renderCounts()}catch{}},3000);
+
+// Programação de reserva hospedada no servidor
+let reserveTracks=[]; let reserveAudio=null; let reservePoll=null; let reserveCurrentKey=''; let reserveAdvanceRequested=false;
+async function loadReserve(){try{const r=await fetch('/api/state');const d=await r.json();reserveTracks=d.state?.reserve?.tracks||[];if($('reserveEnabled'))$('reserveEnabled').checked=!!d.state?.reserve?.enabled;renderReserveList()}catch{}}
+function renderReserveList(){const root=$('reserveList');if(!root)return;root.innerHTML='';if(!reserveTracks.length){root.textContent='Nenhuma música enviada ainda.';return}reserveTracks.forEach((t,i)=>{const row=document.createElement('div');row.className='slot';const name=document.createElement('span');name.textContent=(i+1)+'. '+t.title;const del=document.createElement('button');del.className='btn remove';del.textContent='Remover';del.onclick=async()=>{try{await api('/api/reserve/remove',{id:t.id});await loadReserve();notify('Música removida da programação de reserva.')}catch(e){notify(e.message,'error')}};row.append(name,del);root.append(row)})}
+$('reserveFiles')?.addEventListener('change',()=>{const el=$('reserveFilesName');const file=$('reserveFiles').files?.[0];if(el)el.textContent=file?file.name:'Escolha uma música por vez';if($('reserveFiles').files?.length>1){notify('Adicione apenas uma música por vez para evitar sobrecarregar o site.','error');$('reserveFiles').value='';if(el)el.textContent='Escolha uma música por vez'}});
+$('uploadReserve')?.addEventListener('click',async()=>{const file=$('reserveFiles')?.files?.[0];if(!file){notify('Escolha uma música por vez.','error');return}if(reserveTracks.length>=20){notify('A programação de reserva já tem 20 músicas.','error');return}if(file.size>10*1024*1024){notify('A música ultrapassa 10 MB.','error');return}const button=$('uploadReserve');button.disabled=true;const originalText=button.textContent;button.textContent='Enviando…';try{const data=await new Promise((resolve,reject)=>{const fr=new FileReader();fr.onload=()=>resolve(fr.result);fr.onerror=reject;fr.readAsDataURL(file)});const audio=document.createElement('audio');audio.preload='metadata';audio.src=URL.createObjectURL(file);const duration=await new Promise(resolve=>{audio.onloadedmetadata=()=>resolve(audio.duration||0);audio.onerror=()=>resolve(0)});await api('/api/reserve/upload',{title:file.name.replace(/\.[^.]+$/,''),data,duration});notify('Música adicionada: '+file.name);$('reserveFiles').value='';$('reserveFilesName').textContent='Escolha uma música por vez';await loadReserve()}catch(e){notify(e.message||'Falha ao enviar a música.','error')}finally{button.disabled=false;button.textContent=originalText}});
+$('saveReserve')?.addEventListener('click',async()=>{try{await loadReserve();if($('reserveEnabled').checked&&!reserveTracks.length){notify('Adicione pelo menos uma música antes de ativar a programação de reserva.','error');return}const d=await api('/api/reserve/settings',{enabled:$('reserveEnabled').checked});renderState(d.state);const total=(d.state?.reserve?.tracks||reserveTracks).length;if(d.state?.reserve?.enabled){notify(`Programação de reserva salva com ${total} música(s). Ela tocará automaticamente quando não houver locutor.`)}else{notify(`Programação de reserva salva com ${total} música(s).`)}}catch(e){notify(e.message||'Não foi possível salvar a programação.','error')}});
+const oldLoginForm=$('loginForm');oldLoginForm?.addEventListener('submit',()=>setTimeout(loadReserve,700));
+async function pollReserve(){
+ if(currentState.live){if(reserveAudio){reserveAudio.pause();reserveAudio=null;reserveCurrentKey=''}return}
+ try{
+  const r=await fetch('/api/reserve/current');const d=await r.json();
+  if(!d.playing){if(reserveAudio){reserveAudio.pause();reserveAudio=null;reserveCurrentKey=''}const badge=$('automaticProgramBadge');if(badge)badge.classList.add('hidden');return}
+  const key=d.index+':'+d.startedAt;
+  if(key!==reserveCurrentKey){
+   reserveCurrentKey=key;reserveAdvanceRequested=false;const previous=reserveAudio;const next=new Audio(d.url);next.preload='auto';next.volume=previous&&!previous.paused?0:1;reserveAudio=next;
+   const advanceReserveTrack=async()=>{if(reserveAdvanceRequested)return;reserveAdvanceRequested=true;try{const response=await fetch('/api/reserve/next',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({expectedIndex:d.index})});const result=await response.json();if(result.ok){reserveCurrentKey='';setTimeout(()=>pollReserve(),50)}else{reserveAdvanceRequested=false;setTimeout(pollReserve,500)}}catch{reserveAdvanceRequested=false;setTimeout(pollReserve,1000)}};
+   next.onended=()=>{if(window.__gazetaListenerStarted)advanceReserveTrack()};
+   next.onerror=()=>{if(window.__gazetaListenerStarted&&!reserveAdvanceRequested){notify('Falha ao carregar a música automática. Tentando novamente…','error');setTimeout(()=>{if(window.__gazetaListenerStarted){reserveCurrentKey='';pollReserve()}},1200)}};
+   if(window.__gazetaListenerStarted){
+    try{await next.play();if(previous&&!previous.paused){const start=performance.now(),duration=1800,oldVol=previous.volume;const timer=setInterval(()=>{const t=Math.min(1,(performance.now()-start)/duration);previous.volume=oldVol*(1-t);next.volume=t;if(t>=1){clearInterval(timer);previous.pause();previous.currentTime=0;previous.volume=1;next.volume=1}},35)}}catch(e){/* Keep the listener's play intent and retry without asking for another click. */next.pause();if(previous&&!previous.paused)reserveAudio=previous;else reserveAudio=next;setTimeout(()=>{if(window.__gazetaListenerStarted&&!currentState.live&&reserveAudio===next){next.play().then(()=>{$('playButton').textContent='Ⅱ';$('playButton').title='Pausar rádio'}).catch(()=>{reserveCurrentKey='';setTimeout(pollReserve,1500)})}},1200);}
+   }else if(previous)previous.pause();
+   $('currentTrack').textContent=d.title;const badge=$('automaticProgramBadge');if(badge)badge.classList.remove('hidden');$('programName').textContent='PROGRAMAÇÃO AUTOMÁTICA';
   }
-  if (Array.isArray(body.carousel)) radioState.settings.carousel = body.carousel.slice(0, 3).map(slide => ({
-    title: String(slide.title || '').slice(0, 100), subtitle: String(slide.subtitle || '').slice(0, 200), imageUrl: String(slide.imageUrl || '').slice(0, 2800000)
-  }));
-  persistState();
-  broadcast({ type: 'state', state: radioState });
-  if (discordChanged) broadcast({ type: 'notice', message: 'O link do Discord foi atualizado.' });
-  res.json({ state: radioState });
-});
-app.post('/api/current-track', auth, (req, res) => {
-  radioState.currentTrack = String((req.body || {}).title || '').slice(0, 160);
-  persistState();
-  broadcast({ type: 'state', state: radioState }); res.json({ state: radioState });
-});
-app.post('/api/songs', auth, (req, res) => {
-  const songs = Array.isArray(req.body.songs) ? req.body.songs.slice(0, 20) : [];
-  radioState.mostPlayed = songs.map(s => ({
-    title: String(s.title || '').slice(0, 100),
-    artist: String(s.artist || '').slice(0, 100)
-  })).filter(s => s.title);
-  persistState();
-  broadcast({ type: 'state', state: radioState });
-  res.json({ state: radioState });
-});
-wss.on('connection', (ws) => {
-  const clientId = crypto.randomBytes(10).toString('hex');
-  socketIds.set(ws, clientId); socketsById.set(clientId, ws); ws.radioRole='listener';
-  ws.send(JSON.stringify({ type: 'hello', clientId }));
-  ws.send(JSON.stringify({ type: 'state', state: radioState }));
-  ws.send(JSON.stringify({type:'counts',listeners:[...wss.clients].filter(c=>c.readyState===WebSocket.OPEN&&c.radioRole==='listener').length,sampListeners}));
-  messages.slice(-60).forEach(m => ws.send(JSON.stringify({ type: 'chat', message: m })));
-  ws.on('close', () => { socketIds.delete(ws); socketsById.delete(clientId); broadcast({type:'counts',listeners:[...wss.clients].filter(c=>c!==ws&&c.readyState===WebSocket.OPEN&&c.radioRole==='listener').length,sampListeners}); broadcast({type:'listener-list',listeners:[...wss.clients].filter(c=>c!==ws&&c.readyState===WebSocket.OPEN&&c.radioRole==='listener').map(c=>c.listenerName||'Ouvinte')}); if(ws.radioRole==='guest' && radioState.guest?.active){radioState.guest.active=false;radioState.guest.name='';persistState();broadcast({type:'state',state:radioState});} });
-  ws.on('message', (raw) => {
-    let data;
-    try { data = JSON.parse(raw.toString()); } catch { return; }
-    if (data.type === 'role') { if(['listener','dj','guest'].includes(data.role)) ws.radioRole=data.role; if(data.role==='listener') ws.listenerName=String(data.name||'Ouvinte').trim().slice(0,32)||'Ouvinte'; broadcast({type:'counts',listeners:[...wss.clients].filter(c=>c.readyState===WebSocket.OPEN&&c.radioRole==='listener').length,sampListeners}); broadcast({type:'listener-list',listeners:[...wss.clients].filter(c=>c.readyState===WebSocket.OPEN&&c.radioRole==='listener').map(c=>c.listenerName||'Ouvinte')}); return; }
-    if (data.type === 'guest-auth') { const session=guestSessions.get(String(data.token||'')); if(!session){ws.send(JSON.stringify({type:'guest-error',error:'Sessão do convidado inválida.'}));return;} ws.radioRole='guest'; radioState.guest.active=true;radioState.guest.name=session.name;persistState();broadcast({type:'state',state:radioState});broadcast({type:'counts',listeners:[...wss.clients].filter(c=>c.readyState===WebSocket.OPEN&&c.radioRole==='listener').length,sampListeners});broadcast({type:'notice',message:'Convidado conectado: '+session.name});return; }
-    if (data.type === 'rtc-join') { broadcast({ type: 'rtc-join', from: clientId }); return; }
-    if (data.type === 'rtc') { const target = socketsById.get(String(data.to || '')); if (target && target.readyState === WebSocket.OPEN) target.send(JSON.stringify({ type: 'rtc', from: clientId, payload: data.payload })); return; }
-    if (data.type !== 'chat') return;
-    if (!radioState.live) { ws.send(JSON.stringify({ type: 'chat-error', error: 'O chat será liberado quando a transmissão começar.' })); return; }
-    const name = ws.radioRole==='guest' ? ('Convidado: '+String(radioState.guest?.name||'Convidado')) : (ws.radioRole==='dj' ? 'Locutor' : String(data.name || 'Ouvinte').trim().slice(0,32) || 'Ouvinte');
-    const text = String(data.text || '').trim().slice(0, 500);
-    if (!text) return;
-    const message = { name, text, time: new Date().toISOString() };
-    messages.push(message);
-    if (messages.length > 100) messages = messages.slice(-100);
-    broadcast({ type: 'chat', message });
-  });
-});
-app.use((err, req, res, next) => {
-  if (res.headersSent) return next(err);
-  const status = err.status || err.statusCode || 500;
-  const message = status === 413
-    ? 'Arquivo muito grande. Reduza o tamanho da imagem e tente novamente.'
-    : (status >= 500 && err.message && err.message.startsWith('O servidor não conseguiu gravar')
-      ? err.message
-      : 'Não foi possível processar a solicitação. Confira os dados e tente novamente.');
-  res.status(status).json({ error: message });
-});
-app.get('/ouvintes', (req,res)=>res.redirect(302, '/#ouvintes'));
-app.get('/samp-radio', (req,res)=>res.sendFile(path.join(__dirname,'public','index.html')));
-app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
-server.listen(PORT, '0.0.0.0', () => console.log(`GAZETA FM NACIONAL rodando na porta ${PORT}`));
+ }catch{}
+}
+
+reservePoll=setInterval(()=>{if(!reserveAudio||reserveAudio.paused||!window.__gazetaListenerStarted)pollReserve()},3000);loadReserve();
+// V36: Balcão de Empregos separado da navegação da rádio.
+(()=>{
+ const section=document.getElementById('balcao-empregos'); if(!section)return;
+ const main=document.querySelector('main'); const navLinks=[...document.querySelectorAll('.topbar nav a[href^="#"]')];
+ const normalSections=[...main.children].filter(el=>el!==section);
+ function showJobs(on){ section.classList.toggle('hidden',!on); normalSections.forEach(el=>el.classList.toggle('hidden',on)); navLinks.forEach(a=>a.classList.toggle('active',on&&a.getAttribute('href')==='#balcao-empregos')); if(on)window.scrollTo({top:0,behavior:'smooth'}); }
+ navLinks.forEach(a=>a.addEventListener('click',e=>{const href=a.getAttribute('href');if(href==='#balcao-empregos'){e.preventDefault();showJobs(true)}else if(href==='#radio'||href==='#mais-tocadas'||href==='#ouvintes'){showJobs(false)}}));
+ document.querySelector('.brand')?.addEventListener('click',()=>showJobs(false));
+ const form=document.getElementById('jobForm'), status=document.getElementById('jobFormStatus'), list=document.getElementById('jobsList'), count=document.getElementById('jobCount');
+ const esc=v=>String(v||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+ async function loadJobs(){try{const r=await fetch('/api/jobs');const d=await r.json();const jobs=d.jobs||[];count.textContent=jobs.length+' oportunidade'+(jobs.length===1?'':'s');list.innerHTML=jobs.length?jobs.map(j=>`<article class="job-card">${j.photo?`<img src="${j.photo}" alt="Empresa ${esc(j.company)}">`:'<div class="job-card-placeholder">🏢</div>'}<div><h4>${esc(j.company)}</h4><p class="job-role">${esc(j.role)}</p><div class="job-meta"><span>📍 ${esc(j.location)}</span>${j.salary?`<span>💰 ${esc(j.salary)}</span>`:''}<span>CNPJ: ${esc(j.cnpj)}</span></div>${j.description?`<p class="job-desc">${esc(j.description)}</p>`:''}<a class="job-contact" href="${/^https?:\/\//i.test(j.serverUrl||'')?esc(j.serverUrl):'mailto:'+encodeURIComponent(j.contact)}" target="_blank" rel="noopener">Contato: ${esc(j.contact)}</a></div></article>`).join(''):'<p class="jobs-empty">Ainda não há vagas publicadas. Seja a primeira empresa a anunciar!</p>';}catch{list.innerHTML='<p class="jobs-empty">Não foi possível carregar as vagas agora.</p>'}}
+ form?.addEventListener('submit',async e=>{e.preventDefault();status.textContent='Publicando vaga…';const photoFile=document.getElementById('jobPhoto').files[0];let photo='';if(photoFile){if(photoFile.size>2*1024*1024){status.textContent='A foto deve ter até 2 MB.';return}photo=await new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=reject;r.readAsDataURL(photoFile)})}const data={company:document.getElementById('jobCompany').value,cnpj:document.getElementById('jobCnpj').value,role:document.getElementById('jobRole').value,salary:document.getElementById('jobSalary').value,location:document.getElementById('jobLocation').value,contact:document.getElementById('jobContact').value,serverUrl:document.getElementById('jobServer').value,description:document.getElementById('jobDescription').value,photo};try{const r=await fetch('/api/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const d=await r.json();if(!r.ok)throw Error(d.error||'Falha ao publicar');form.reset();status.textContent='Vaga publicada com sucesso.';await loadJobs()}catch(err){status.textContent=err.message||'Não foi possível publicar a vaga.'}});
+ loadJobs();
+})();
