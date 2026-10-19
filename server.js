@@ -104,8 +104,12 @@ app.post('/api/login', (req, res) => {
   if (!safeEqual(username, DJ_USERNAME) || !safeEqual(password, DJ_PASSWORD)) {
     return res.status(401).json({ error: 'Usuário ou senha incorretos.' });
   }
+  // Limite de três sessões autenticadas simultaneamente no painel.
+  const now = Date.now();
+  for (const [key, createdAt] of sessions) if (now - createdAt > 12 * 60 * 60 * 1000) sessions.delete(key);
+  if (sessions.size >= 3) return res.status(429).json({ error: 'Limite atingido: já existem 3 locutores conectados ao painel. Tente novamente mais tarde.' });
   const token = crypto.randomBytes(32).toString('hex');
-  sessions.set(token, Date.now());
+  sessions.set(token, now);
   res.json({ token, username: DJ_USERNAME });
 });
 app.post('/api/logout', auth, (req, res) => {
@@ -187,7 +191,7 @@ app.post('/api/current-track', auth, (req, res) => {
   broadcast({ type: 'state', state: radioState }); res.json({ state: radioState });
 });
 app.post('/api/songs', auth, (req, res) => {
-  const songs = Array.isArray(req.body.songs) ? req.body.songs.slice(0, 20) : [];
+  const songs = Array.isArray(req.body.songs) ? req.body.songs.slice(0, 10) : [];
   const previous = Array.isArray(radioState.mostPlayed) ? radioState.mostPlayed : [];
   radioState.mostPlayed = songs.map(s => {
     const title=String(s.title||'').trim().slice(0,100), artist=String(s.artist||'').trim().slice(0,100), photoUrl=String(s.photoUrl||'').trim().slice(0,500);
