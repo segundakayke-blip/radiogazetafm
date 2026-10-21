@@ -195,7 +195,7 @@ app.post('/api/songs', auth, (req, res) => {
   const songs = Array.isArray(req.body.songs) ? req.body.songs.slice(0, 10) : [];
   const previous = Array.isArray(radioState.mostPlayed) ? radioState.mostPlayed : [];
   radioState.mostPlayed = songs.map(s => {
-    const title=String(s.title||'').trim().slice(0,100), artist=String(s.artist||'').trim().slice(0,100), photoUrl=String(s.photoUrl||'').trim().slice(0,500);
+    const title=String(s.title||'').trim().slice(0,100), artist=String(s.artist||'').trim().slice(0,100), photoUrl=String(s.photoUrl||'').trim().slice(0,900000);
     const old=previous.find(p=>p.title===title&&String(p.artist||'')===artist)||{};
     return {title,artist,photoUrl,likes:Number(old.likes)||0,dislikes:Number(old.dislikes)||0};
   }).filter(s => s.title);
